@@ -24,6 +24,15 @@ Sfx="*res://src/core/sfx.gd"
 Srs="*res://src/core/srs.gd"
 Curriculum="*res://src/core/curriculum.gd"
 
+[audio]
+
+; Godot 4.3+ 在 web 預設用 Sample 播放模式，但 Sample 模式在 web 上有已知問題：
+; AudioContext 沒有被正確 resume，整個遊戲會完全靜默（連程序化音效都沒有）。
+; Godot 官方文件明確建議改用 Stream 模式取得完整的音訊功能。
+; 代價是延遲較高（尤其關閉 thread 時），對這個遊戲可以接受。
+driver/enable_input=false
+general/default_playback_type="Stream"
+
 [debug]
 
 gdscript/warnings/untyped_declaration=0

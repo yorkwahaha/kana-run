@@ -81,22 +81,51 @@ var _manifest_keepalive: Array = _manifest.KEEPALIVE
 ## 掛在 window 上的音訊解鎖腳本。
 ## 用 String("\n").join(...)：GDScript 的 Array / PackedStringArray 都沒有
 ## join()，只有 String 有。const 也不接受方法呼叫，所以用 static var。
+##
+## 呼叫 Godot 自己的 _godot_audio_resume()，不要自己摸 AudioContext ——
+## GodotAudio.ctx 是 index.js 的 module scope 區域變數，外部拿不到；
+## 而 __godotAudioContexts 之類的名稱並不存在（那是臆測出來的，無效）。
 static var WEB_AUDIO_UNLOCK_JS := String("\n").join(PackedStringArray([
 	"(() => {",
+	"  let tries = 0;",
 	"  const tryResume = () => {",
-	"    try {",
-	"      if (!window.__godotAudioContexts) window.__godotAudioContexts = [];",
-	"      for (const ctx of window.__godotAudioContexts) {",
-	"        if (ctx && ctx.state === 'suspended' && ctx.resume) ctx.resume();",
-	"      }",
-	"    } catch (e) {}",
+	"    tries++;",
+	"    // Godot 匯出的 index.js 把 _godot_audio_resume 掛在 Module 上，",
+	"    // 它內部會檢查 GodotAudio.ctx.state 並呼叫 resume()。",
+	"    const m = window.Module || {};",
+	"    if (typeof m._godot_audio_resume === 'function') {",
+	"      try { m._godot_audio_resume(); } catch (e) {}",
+	"    }",
 	"  };",
 	"  for (const ev of ['pointerdown','touchstart','keydown','mousedown','click']) {",
-	"    window.addEventListener(ev, tryResume, { passive: true });",
+	"    window.addEventListener(ev, tryResume, { passive: true, capture: true });",
 	"  }",
-	"  setTimeout(tryResume, 250);",
-	"  setTimeout(tryResume, 1000);",
-	"  setTimeout(tryResume, 3000);",
+	"  // Module 與 AudioContext 是在載入過程中陸續建立的，",
+	"  // 所以前幾秒內多試幾次，涵蓋「使用者比引擎早點完」的情況。",
+	"  for (let i = 0; i < 24; i++) {",
+	"    setTimeout(tryResume, 250 + i * 250);",
+	"  }",
+	"})();",
+	# 診斷：把 AudioContext 的狀態寫進畫面右下角，
+	# 這樣「沒聲音」時可以一眼看出是 suspended 還是根本沒 ctx。
+	# 沒有它就只能靠猜，而這個問題已經猜錯兩次了。
+	# window.__kanaAudio 供 main.gd 的 --audiodebug 旗標讀取。
+	"(() => {",
+	"  const probe = () => {",
+	"    const m = window.Module || {};",
+	"    const ga = (typeof GodotAudio !== 'undefined') ? GodotAudio : null;",
+	"    window.__kanaAudio = {",
+	"      hasModule: !!m,",
+	"      hasResume: typeof m._godot_audio_resume === 'function',",
+	"      hasCtx: !!(ga && ga.ctx),",
+	"      state: (ga && ga.ctx) ? ga.ctx.state : 'no-ctx',",
+	"      rate: (ga && ga.ctx) ? ga.ctx.sampleRate : 0,",
+	"      tries: window.__kanaAudio ? (window.__kanaAudio.tries + 1) : 1,",
+	"    };",
+	"  };",
+	"  window.addEventListener('kanaprobe', probe);",
+	"  setInterval(probe, 500);",
+	"  probe();",
 	"})();",
 	]))
 
@@ -106,13 +135,22 @@ static var WEB_AUDIO_UNLOCK_JS := String("\n").join(PackedStringArray([
 ## Web Audio API 的 AudioContext 初始是 suspended 狀態，
 ## 必須在使用者點過畫面之後呼叫 resume() 才會出聲。
 ##
-## Godot 4 的 web 匯出有自己的處理，但它只會在啟動畫面那一次點擊時解鎖。
-## 問題是這個遊戲啟動後會先進「標題 → 開始挑戰 → 設定」好幾層，
-## 有些瀏覽器（尤其 iOS Safari）在 AudioContext 被其他操作重新暫停之後
-## 不會自動恢復，結果就是「設定畫面顯示 BGM 2/4，但完全沒聲音」。
+## Godot 4 匯出的 index.js 裡有：
+##     var GodotAudio = { ctx: AudioContext, ... }
+##     function _godot_audio_resume() {
+##       if (GodotAudio.ctx && GodotAudio.ctx.state !== 'running') GodotAudio.ctx.resume()
+##     }
+## ctx 是 module scope 的區域變數，無法從外部直接取得，
+## 但 _godot_audio_resume() 掛在 window 上（Module 物件的成員），
+## 所以從 JS 直接呼叫它是最乾淨的做法。
 ##
-## 保險做法是掛一個 window 事件監聽器，收到任何使用者輸入就試著 resume。
-## 這是冪等的，重複呼叫 resume() 不會有副作用。
+## 為什麼需要這個：Godot 自己的處理只涵蓋啟動畫面那一次點擊。
+## 這個遊戲啟動後還要經過「標題 → 開始挑戰 → 設定」好幾層，
+## iOS Safari 在這過程中不會自動恢復 AudioContext，
+## 結果是「設定畫面顯示 BGM 2/4，但完全沒聲音」。
+##
+## 同時也要把 context 建好時的狀態記錄起來：
+## 若使用者在我們掛事件之前就已經點過，後續事件也能再保險 resume 一次。
 func _install_web_audio_unlock() -> void:
 	if not OS.has_feature("web"):
 		return
@@ -120,6 +158,27 @@ func _install_web_audio_unlock() -> void:
 	if js == null:
 		return
 	js.eval(WEB_AUDIO_UNLOCK_JS, true)
+
+
+## 除錯用：把瀏覽器的 AudioContext 狀態印到 console。
+##
+## 這個問題沒有任何錯誤訊息 —— 沒有聲音就是沒有聲音。
+## 沒有這段就只能靠猜，而「沒聲音」的原因至少有四種
+## （ctx 不存在 / suspended / ctx 被 resume 但 bus 靜音 / 音檔沒解碼），
+## 猜錯的成本很高。
+##
+## 在瀏覽器主控台執行：  Sfx.audio_debug()
+func audio_debug() -> void:
+	if not OS.has_feature("web"):
+		print("[audio] 非 web 版，用 OS.get_name() = ", OS.get_name())
+		print("[audio] 音訊驅動 = ", AudioServer.get_driver_name() if AudioServer.has_method("get_driver_name") else "n/a")
+		print("[audio] 外部 BGM = ", using_external_bgm, "  曲目數 = ", _bgm_tracks.size())
+		return
+	var js := JavaScriptBridge
+	if js == null:
+		return
+	var r: Variant = js.eval("JSON.stringify(window.__kanaAudio || {})", true)
+	print("[audio] ", r)
 
 
 func _ready() -> void:
