@@ -126,6 +126,51 @@ I:\Projects\Kana Run\audio\sfx\       ← 覆蓋單一音效，檔名必須完�
 
 ---
 
+## 音訊格式：**全部用 MP3，不要用 Ogg**
+
+壓縮 BGM 時很容易走到 Ogg Vorbis（壓縮率較好），但那是個陷阱：
+
+**iOS Safari 要到 18.4 才支援 Ogg Vorbis**，更早的版本是部分支援或完全不支援。
+症狀非常具迷惑性 —— SFX 和語音包是 MP3 所以有聲音，只有 BGM 靜默，
+設定畫面還照樣顯示「外部 BGM：2 / 4 hit」。
+
+同一首 2:16 的曲子實測：
+
+| 格式 | 大小 | 瀏覽器相容 |
+|---|---|---|
+| MP3 192k 48kHz（原始） | 3.37 MB | ✓ |
+| Ogg Vorbis q5 44.1kHz | 1.86 MB | **iOS Safari 18.4 以下不支援** |
+| MP3 VBR q4 44.1kHz | 2.56 MB | ✓ |
+| **MP3 CBR 112k 44.1kHz** | **1.82 MB** | ✓ |
+
+`tools/gen_manifest.py` 的開頭註解有完整說明。
+
+## 網頁版音訊解鎖
+
+所有瀏覽器都禁止網頁在沒有使用者互動時發聲（Web Audio 的
+`AudioContext` 初始是 `suspended`）。Godot 4 的 web 匯出有自己的處理，
+但只涵蓋啟動畫面的那一次點擊；遊戲進入標題 → 開始 → 設定好幾層之後，
+有些瀏覽器不會自動恢復。
+
+`Sfx._install_web_audio_unlock()` 掛了 `pointerdown` / `touchstart` /
+`keydown` / `mousedown` / `click` 五種事件，只要收到任一使用者輸入
+就嘗試 `resume()`。冪等，重複呼叫沒有副作用。
+
+## 網頁版沒有聲音時的排查順序
+
+症狀都是「匯出成功、沒有任何錯誤訊息」，所以只能靠觀察判斷：
+
+1. **設定畫面寫「目前使用內建程序化配樂」** → BGM 檔案沒被讀到。
+   查 pck 裡有沒有 `.mp3str`（`grep -c '\.mp3str' index.pck`）
+2. **顯示了 BGM 編號但沒聲音** → 格式不支援，或 AudioContext 被暫停
+3. **音效有聲音但 BGM 沒有** → 幾乎一定是 Ogg 格式的問題
+4. **完全沒聲音** → AudioContext 沒解鎖，需要使用者點一下畫面
+
+CI 會實際執行匯出出的 pck 並確認讀得到 BGM，不要只比對檔案大小 ——
+pck 有內部壓縮，13MB 原始音訊進去只會變成 7MB 左右。
+
+---
+
 ## 語音包（聽力題）
 
 ```

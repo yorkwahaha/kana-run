@@ -28,10 +28,10 @@ extends RefCounted
 ## 使用者加了新檔卻忘了更新，新檔在網頁版就會靜靜地不見。
 
 ## ── 音訊 ──
-const A_MUSIC_DASH := preload("res://audio/music/dash.ogg")
-const A_MUSIC_HIT := preload("res://audio/music/hit.ogg")
-const A_MUSIC_HOSI := preload("res://audio/music/hosi.ogg")
-const A_MUSIC_RYU := preload("res://audio/music/ryu.ogg")
+const A_MUSIC_DASH := preload("res://audio/music/dash.mp3")
+const A_MUSIC_HIT := preload("res://audio/music/hit.mp3")
+const A_MUSIC_HOSI := preload("res://audio/music/hosi.mp3")
+const A_MUSIC_RYU := preload("res://audio/music/ryu.mp3")
 const A_SFX_BACK := preload("res://audio/sfx/back.mp3")
 const A_SFX_MISS := preload("res://audio/sfx/miss.mp3")
 const A_SFX_SHATTER := preload("res://audio/sfx/shatter.mp3")
@@ -150,10 +150,10 @@ const F_UI := preload("res://assets/fonts/ui.ttf")
 ## Sfx 與 Curriculum 讀這三個清單，取代 DirAccess 目錄掃描。
 
 const MUSIC: Array = [
-	{"name": "dash", "path": "res://audio/music/dash.ogg"},
-	{"name": "hit", "path": "res://audio/music/hit.ogg"},
-	{"name": "hosi", "path": "res://audio/music/hosi.ogg"},
-	{"name": "ryu", "path": "res://audio/music/ryu.ogg"},
+	{"name": "dash", "path": "res://audio/music/dash.mp3"},
+	{"name": "hit", "path": "res://audio/music/hit.mp3"},
+	{"name": "hosi", "path": "res://audio/music/hosi.mp3"},
+	{"name": "ryu", "path": "res://audio/music/ryu.mp3"},
 ]
 
 const SFX: Array = [

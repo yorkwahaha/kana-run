@@ -78,6 +78,49 @@ var _weather := ""          ## 目前分區天氣（"" / rain / storm / combo）
 var _manifest: GDScript = preload("res://src/core/audio_manifest.gd")
 var _manifest_keepalive: Array = _manifest.KEEPALIVE
 
+## 掛在 window 上的音訊解鎖腳本。
+## 用 String("\n").join(...)：GDScript 的 Array / PackedStringArray 都沒有
+## join()，只有 String 有。const 也不接受方法呼叫，所以用 static var。
+static var WEB_AUDIO_UNLOCK_JS := String("\n").join(PackedStringArray([
+	"(() => {",
+	"  const tryResume = () => {",
+	"    try {",
+	"      if (!window.__godotAudioContexts) window.__godotAudioContexts = [];",
+	"      for (const ctx of window.__godotAudioContexts) {",
+	"        if (ctx && ctx.state === 'suspended' && ctx.resume) ctx.resume();",
+	"      }",
+	"    } catch (e) {}",
+	"  };",
+	"  for (const ev of ['pointerdown','touchstart','keydown','mousedown','click']) {",
+	"    window.addEventListener(ev, tryResume, { passive: true });",
+	"  }",
+	"  setTimeout(tryResume, 250);",
+	"  setTimeout(tryResume, 1000);",
+	"  setTimeout(tryResume, 3000);",
+	"})();",
+	]))
+
+
+## ── 網頁版音訊解鎖 ──────────────────────────────────────────────────────
+## 所有瀏覽器都禁止網頁在「沒有使用者互動」的情況下發聲。
+## Web Audio API 的 AudioContext 初始是 suspended 狀態，
+## 必須在使用者點過畫面之後呼叫 resume() 才會出聲。
+##
+## Godot 4 的 web 匯出有自己的處理，但它只會在啟動畫面那一次點擊時解鎖。
+## 問題是這個遊戲啟動後會先進「標題 → 開始挑戰 → 設定」好幾層，
+## 有些瀏覽器（尤其 iOS Safari）在 AudioContext 被其他操作重新暫停之後
+## 不會自動恢復，結果就是「設定畫面顯示 BGM 2/4，但完全沒聲音」。
+##
+## 保險做法是掛一個 window 事件監聽器，收到任何使用者輸入就試著 resume。
+## 這是冪等的，重複呼叫 resume() 不會有副作用。
+func _install_web_audio_unlock() -> void:
+	if not OS.has_feature("web"):
+		return
+	var js := JavaScriptBridge
+	if js == null:
+		return
+	js.eval(WEB_AUDIO_UNLOCK_JS, true)
+
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -89,6 +132,7 @@ func _ready() -> void:
 	_build_synth_bank()
 	_build_sfx_bank()
 	_start_wind()
+	_install_web_audio_unlock()
 	_bgm_mode = int(SaveGame.get_setting("bgm_mode", 0))
 	_load_external()
 
