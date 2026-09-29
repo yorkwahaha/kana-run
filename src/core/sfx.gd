@@ -175,6 +175,9 @@ func audio_debug() -> void:
 	print("[audio] feature web   : ", OS.has_feature("web"))
 	print("[audio] mix rate      : ", AudioServer.get_mix_rate())
 	print("[audio] bus count     : ", AudioServer.bus_count)
+	# 網頁版會讀 .web 覆寫。0=Stream，1=Sample。印出 1 就是整局靜音的那條路。
+	var playback := int(ProjectSettings.get_setting("audio/general/default_playback_type"))
+	print("[audio] playback cfg  : ", playback, " (0=Stream 1=Sample)")
 
 	print("[audio] --- bus 狀態 ---")
 	for i in AudioServer.bus_count:
@@ -192,6 +195,7 @@ func audio_debug() -> void:
 		print("[audio]   ★ _bgm_player 是 null")
 	else:
 		print("[audio]   playing     : ", _bgm_player.playing)
+		print("[audio]   playback    : ", _bgm_player.playback_type)
 		print("[audio]   volume_db   : %.1f" % _bgm_player.volume_db)
 		print("[audio]   bus         : ", _bgm_player.bus)
 		print("[audio]   stream      : ",
@@ -309,9 +313,7 @@ func _reload_music() -> void:
 	_silent_report = false
 
 	if _bgm_player == null:
-		_bgm_player = AudioStreamPlayer.new()
-		_bgm_player.bus = BUS_MUSIC
-		_bgm_player.process_mode = Node.PROCESS_MODE_ALWAYS
+		_bgm_player = _new_player(BUS_MUSIC)
 		add_child(_bgm_player)
 		_bgm_player.volume_db = linear_to_db(clampf(
 			float(SaveGame.get_setting("music_volume", 0.38)), 0.0, 1.0))
@@ -320,9 +322,27 @@ func _reload_music() -> void:
 		set_bgm_track(randi() % _bgm_tracks.size())
 
 
+## 跟 _reload_music 同一套。DirAccess.get_files_at() 在匯出後的 pck
+## 讀不到目錄，所以先前網頁版 ext sfx count 一直是 0，6 個音效檔沒接上。
 func _reload_sfx() -> void:
 	_ext_sfx.clear()
 	var sig := ""
+	var seen := {}
+
+	for entry in _manifest.SFX:
+		var path: String = entry["path"]
+		if seen.has(path):
+			continue
+		seen[path] = true
+		var base := str(entry["name"])
+		if not _sfx_bank.has(base):
+			continue
+		var stream := _try_load(path)
+		if stream == null:
+			continue
+		_ext_sfx[base] = stream
+		sig += path + "|"
+
 	if DirAccess.dir_exists_absolute(DIR_SFX):
 		var names: Array[String] = []
 		for f in DirAccess.get_files_at(DIR_SFX):
@@ -330,11 +350,15 @@ func _reload_sfx() -> void:
 				names.append(f)
 		names.sort()
 		for f in names:
-			sig += f + "|"
+			var path := DIR_SFX + f
+			if seen.has(path):
+				continue
+			seen[path] = true
+			sig += path + "|"
 			var base := f.get_basename()
 			if not _sfx_bank.has(base):
 				continue
-			var stream := _try_load(DIR_SFX + f)
+			var stream := _try_load(path)
 			if stream != null:
 				_ext_sfx[base] = stream
 	_sfx_sig = sig
@@ -509,17 +533,28 @@ func refresh_volumes() -> void:
 # ── 播放器池 ────────────────────────────────────────────────────────────
 func _build_voices() -> void:
 	for i in SFX_VOICES:
-		var p := AudioStreamPlayer.new()
-		p.bus = BUS_SFX
-		p.process_mode = Node.PROCESS_MODE_ALWAYS
+		var p := _new_player(BUS_SFX)
 		add_child(p)
 		_sfx_players.append(p)
 	for i in MUSIC_VOICES:
-		var p := AudioStreamPlayer.new()
-		p.bus = BUS_MUSIC
-		p.process_mode = Node.PROCESS_MODE_ALWAYS
+		var p := _new_player(BUS_MUSIC)
 		add_child(p)
 		_music_players.append(p)
+
+
+## 網頁版必須強制 Stream。
+##
+## 專案設定 audio/general/default_playback_type.web 的引擎預設是 Sample。
+## 播放器的 playback_type 留在 Default 時會採用那個值。
+## Sample 加上 _setup_buses() 裡的 add_bus() 會觸發 Godot #119026，
+## JS 端 Master 被從喇叭拔掉，整局靜默，而且沒有任何錯誤訊息。
+## 這裡直接指定 Stream，不靠專案設定有沒有寫對 .web 那個鍵。
+func _new_player(bus: String) -> AudioStreamPlayer:
+	var p := AudioStreamPlayer.new()
+	p.bus = bus
+	p.process_mode = Node.PROCESS_MODE_ALWAYS
+	p.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
+	return p
 
 
 func _free_voice(pool: Array[AudioStreamPlayer]) -> AudioStreamPlayer:
@@ -766,8 +801,7 @@ func word_collect() -> void:
 
 # ── 風聲 ────────────────────────────────────────────────────────────────
 func _start_wind() -> void:
-	_wind = AudioStreamPlayer.new()
-	_wind.bus = BUS_SFX
+	_wind = _new_player(BUS_SFX)
 	_wind.volume_db = -60.0
 	var st := _render(2.0, func(t: float, _i: int):
 		# 平滑的棕噪音感 + 緩慢起伏

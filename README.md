@@ -171,18 +171,23 @@ I:\Projects\Kana Run\audio\sfx\       ← 覆蓋單一音效，檔名必須完�
 
 在 Console 執行 `Sfx.audio_debug()` 可以拿到 AudioContext 的實際狀態。
 
-### 真正的根因：Sample 播放模式
+### 真正的根因：網頁版仍在用 Sample，而且 Master 被拔離喇叭
 
-**Godot 4.3+ 在 web 預設用 Sample 播放模式，它在 web 上會讓整個遊戲靜默** ——
-連程序化音效都沒有，畫面正常跑、BGM 列表也正確，就是完全沒聲音。
-Godot 官方文件明確建議改用 Stream 模式。本專案在 `project.godot` 設了：
+Godot 4.3+ 在 web 的預設是 Sample。生效的專案設定鍵是
+`audio/general/default_playback_type.web`（整數，`0` = Stream，`1` = Sample），
+**不是** `default_playback_type`。引擎內建 `.web=1`。
+先前寫的 `default_playback_type="Stream"` 在網頁版不會被讀到，
+播放模式一直是 Sample。
 
-```
-[audio]
-general/default_playback_type="Stream"
-```
+Sample 再碰到執行期 `AudioServer.add_bus()`（本專案有 Music、Sfx）
+會踩 [Godot #119026](https://github.com/godotengine/godot/issues/119026)：
+JS 端的 Master 被從 `AudioContext.destination` 拔掉。
+播放器回報 `playing`、bus 沒靜音、沒有 AudioContext 警告，喇叭完全沒聲音。
+桌機沒有這條 JS bus，所以只有網頁版中招。
 
-代價是延遲較高（關閉 thread 時尤其明顯），對這個遊戲可以接受。
+修法是 `default_playback_type.web=0`，並且每個 `AudioStreamPlayer`
+都設 `playback_type = AudioServer.PLAYBACK_TYPE_STREAM`。
+單執行緒網頁版用 Stream 延遲較高，但音訊走 Godot 自己的混音器。
 
 ### 診斷這件事本身比想像中難
 

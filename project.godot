@@ -26,12 +26,20 @@ Curriculum="*res://src/core/curriculum.gd"
 
 [audio]
 
-; Godot 4.3+ 在 web 預設用 Sample 播放模式，但 Sample 模式在 web 上有已知問題：
-; AudioContext 沒有被正確 resume，整個遊戲會完全靜默（連程序化音效都沒有）。
-; Godot 官方文件明確建議改用 Stream 模式取得完整的音訊功能。
-; 代價是延遲較高（尤其關閉 thread 時），對這個遊戲可以接受。
+; Web 的生效鍵是 default_playback_type.web，不是不帶後綴的那一項。
+; 引擎內建 .web=1（Sample）。只寫 default_playback_type="Stream"
+; 在網頁版完全不會被讀到，播放模式仍是 Sample。
+;
+; Sample 再碰到執行期 AudioServer.add_bus()（本專案有 Music / Sfx 兩條）
+; 會踩 Godot #119026：JS 端 Master 的輸出被從 AudioContext.destination 拔掉。
+; 播放器回報 playing、bus 沒靜音、沒有 AudioContext 警告，喇叭卻是全靜音。
+; 桌機沒有這條 JS bus，所以只有網頁版中招。
+;
+; 0 = Stream，1 = Sample。這兩個數字不是 AudioServer.PlaybackType 的列舉值。
+; 單執行緒網頁版用 Stream 延遲較高，但混音走 Godot 自己的驅動，不經過壞掉的圖。
 driver/enable_input=false
-general/default_playback_type="Stream"
+general/default_playback_type=0
+general/default_playback_type.web=0
 
 [debug]
 

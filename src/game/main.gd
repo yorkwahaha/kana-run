@@ -367,6 +367,8 @@ func _build_world() -> void:
 	# 題目語音（聽力題型）專用播放器
 	_voice_player = AudioStreamPlayer.new()
 	_voice_player.bus = "Sfx"
+	# 見 Sfx._new_player：網頁版 Default 會落到 Sample，多 bus 時整局沒聲音。
+	_voice_player.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
 	add_child(_voice_player)
 
 	_cam = load("res://src/game/camera_director.gd").new() as Camera3D

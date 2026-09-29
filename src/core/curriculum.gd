@@ -29,6 +29,10 @@ func sync_settings() -> void:
 
 
 func listening_available() -> bool:
+	# 匯出後的 pck 裡 DirAccess 常常報這個目錄不存在，
+	# 但 manifest preload 進來的 mp3 還在。用資源是否存在當準。
+	if ResourceLoader.exists(LISTENING_DIR + "a.mp3"):
+		return true
 	return DirAccess.dir_exists_absolute(LISTENING_DIR)
 
 
@@ -274,7 +278,7 @@ func _build_word_blank(q: Dictionary, kana: String) -> void:
 const WORDS_DIR := "res://audio/words/"
 
 func word_file(reading: String) -> String:
-	if reading.is_empty() or not DirAccess.dir_exists_absolute(WORDS_DIR):
+	if reading.is_empty():
 		return ""
 	for ext in LISTENING_EXT:
 		var path := "%s%s.%s" % [WORDS_DIR, reading, ext]

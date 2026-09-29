@@ -2,6 +2,29 @@
 
 給接手除錯的 agent。請先讀完這份再動手，避免重走我走過的死路。
 
+## 0. 已查明（2026-09-29）
+
+靜默的原因不是 AudioContext 沒 resume，也不是音檔沒載入。
+
+1. `project.godot` 寫了 `general/default_playback_type="Stream"`。
+   網頁版讀的是 **`general/default_playback_type.web`**。
+   引擎內建值是 `1`（Sample）。不帶 `.web` 的那一項在網頁版不會被採用，
+   而且那個值必須是整數：`0` = Stream，`1` = Sample。
+   這兩個數字不是 `AudioServer.PlaybackType` 的列舉值。
+2. 播放模式留在 Sample 時，`Sfx._setup_buses()` 的 `AudioServer.add_bus()`
+   會踩 [Godot #119026](https://github.com/godotengine/godot/issues/119026)。
+   `Bus.addAt(-1)` 把 JS 端的 bus 陣列排亂，Master 的 `_send` 不再是 `null`，
+   `connect()` 把 Master 從 `ctx.destination` 拔掉。
+   所以 Godot 認為正在播放、bus 沒靜音、沒有 autoplay 警告，喇叭卻是全靜音。
+   桌機沒有這條 JS bus，所以原生版正常。
+
+修法：`default_playback_type.web=0`，並且每個 `AudioStreamPlayer` 設
+`playback_type = AudioServer.PLAYBACK_TYPE_STREAM`。
+`ext sfx count: 0` 是另一個 bug（`_reload_sfx` 仍用 `DirAccess`），
+會讓外部音效檔沒接上，但解釋不了「連程序化音效都沒有」。那個也已改走 manifest。
+
+下面第 3 節以後是查到這兩點之前走過的死路，留著避免重走。
+
 ---
 
 ## 1. 現象
