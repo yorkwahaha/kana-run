@@ -1,0 +1,686 @@
+extends Node
+## Sfx — 全程式化音訊：音效與自適應配樂。
+##
+## 專案不含任何音檔。啟動時用數學合成所有音色（AudioStreamWAV PCM），
+## 配樂則由一個 16 分音符排程器即時驅動，強度會跟著玩家速度與連段攀升。
+
+const MIX_RATE := 44100
+const SFX_VOICES := 14
+const MUSIC_VOICES := 10
+
+const BUS_MASTER := "Master"
+const BUS_MUSIC := "Music"
+const BUS_SFX := "Sfx"
+
+## 使用者可以自己丟音檔進來的位置（見 README）
+const DIR_MUSIC := "res://audio/music/"
+const DIR_SFX := "res://audio/sfx/"
+const AUDIO_EXT := ["ogg", "mp3", "wav", "m4a"]
+
+# ── 音樂理論 ────────────────────────────────────────────────────────────
+## D 多利安調式音階，適合神社夜景的東方感又不會太陰暗
+const SCALE := [0, 2, 3, 5, 7, 9, 10]   # 對 D 取相對半音
+const ROOT_MIDI := 50                      # D3
+const CHORDS := [                          # 每 4 小節的和聲 (相對音級)
+	[0, 2, 4, 6],   # i7
+	[5, 0, 2, 4],   # IV7
+	[3, 5, 0, 2],   # vii°7 -> 借用
+	[4, 6, 1, 3],   # v7 -> 借用
+]
+
+var _sfx_players: Array[AudioStreamPlayer] = []
+var _music_players: Array[AudioStreamPlayer] = []
+var _synth: Dictionary = {}
+var _sfx_bank: Dictionary = {}
+var _music_bus_idx := -1
+var _sfx_bus_idx := -1
+
+## 外部音檔：丟 mp3/ogg 進 res://audio/music 與 res://audio/sfx 即可覆蓋
+var _ext_sfx: Dictionary = {}          ## 音效名 -> AudioStream
+var _bgm_tracks: Array = []            ## 可用的背景音樂
+var _bgm_player: AudioStreamPlayer
+var _bgm_track_names: Array[String] = []
+var using_external_bgm := false
+var _scan_timer := 0.0
+var _music_sig := ""
+var _sfx_sig := ""
+var _silent_report := true
+var _last_sfx_report := ""
+var _bgm_mode := 0            ## 0 = 單曲循環, 1 = 全部輪播
+
+# ── 配樂狀態 ────────────────────────────────────────────────────────────
+var music_on := true
+var intensity := 0.0          # 0..1，由 Main 依速度／連段設定
+var _step := 0
+var _step_timer := 0.0
+var _step_len := 0.22
+var _bar := 0
+var _chord := 0
+var _enabled_voices := 3
+var _last_played_step := -1
+
+# ── 風音效 ──────────────────────────────────────────────────────────────
+var _wind: AudioStreamPlayer
+var wind_gain_db := -60.0
+var _weather := ""          ## 目前分區天氣（"" / rain / storm / combo）
+
+
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_setup_buses()
+	_build_voices()
+	_build_synth_bank()
+	_build_sfx_bank()
+	_start_wind()
+	_bgm_mode = int(SaveGame.get_setting("bgm_mode", 0))
+	_load_external()
+
+
+# ── 外部音檔 ────────────────────────────────────────────────────────────
+## res://audio/music/*.mp3  → 當作 BGM（隨機挑一首循環）
+## res://audio/sfx/<name>.mp3 → 覆蓋同名的程序化音效
+##   可覆蓋的 name：shift, shatter, miss, tap, back, tick
+## 這樣想換音樂不必動任何程式碼。
+func _load_external() -> void:
+	_reload_sfx()
+	_reload_music()
+
+
+## 掃描 music 資料夾。回傳檔案簽章（檔名串接）用來判斷有沒有變動。
+func _reload_music() -> void:
+	_bgm_tracks.clear()
+	_bgm_track_names.clear()
+	var sig := ""
+	if DirAccess.dir_exists_absolute(DIR_MUSIC):
+		var names: Array[String] = []
+		for f in DirAccess.get_files_at(DIR_MUSIC):
+			if AUDIO_EXT.has(f.get_extension().to_lower()):
+				names.append(f)
+		names.sort()
+		for f in names:
+			sig += f + "|"
+			var stream := _try_load(DIR_MUSIC + f)
+			if stream != null:
+				_bgm_tracks.append(stream)
+				_bgm_track_names.append(f.get_file().get_basename())
+	_music_sig = sig
+
+	var had := using_external_bgm
+	using_external_bgm = not _bgm_tracks.is_empty()
+	if not using_external_bgm:
+		if not _silent_report:
+			print("[sfx] %s" % report())
+			_silent_report = true
+		return
+	if not had:
+		print("[sfx] %s" % report())
+	_silent_report = false
+
+	if _bgm_player == null:
+		_bgm_player = AudioStreamPlayer.new()
+		_bgm_player.bus = BUS_MUSIC
+		_bgm_player.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(_bgm_player)
+		_bgm_player.volume_db = linear_to_db(clampf(
+			float(SaveGame.get_setting("music_volume", 0.38)), 0.0, 1.0))
+		_bgm_player.finished.connect(_on_bgm_finished)
+	if not had or _bgm_player.stream == null or _bgm_player.stream not in _bgm_tracks:
+		set_bgm_track(randi() % _bgm_tracks.size())
+
+
+func _reload_sfx() -> void:
+	_ext_sfx.clear()
+	var sig := ""
+	if DirAccess.dir_exists_absolute(DIR_SFX):
+		var names: Array[String] = []
+		for f in DirAccess.get_files_at(DIR_SFX):
+			if AUDIO_EXT.has(f.get_extension().to_lower()):
+				names.append(f)
+		names.sort()
+		for f in names:
+			sig += f + "|"
+			var base := f.get_basename()
+			if not _sfx_bank.has(base):
+				continue
+			var stream := _try_load(DIR_SFX + f)
+			if stream != null:
+				_ext_sfx[base] = stream
+	_sfx_sig = sig
+	if not _ext_sfx.is_empty() and sig != _last_sfx_report:
+		_last_sfx_report = sig
+		print("[sfx] 外部音效覆蓋：%s" % ", ".join(PackedStringArray(_ext_sfx.keys())))
+
+
+## 每隔一陣子重掃一次：把 mp3 丟進資料夾就算已經在遊戲裡，
+## 也會在幾秒內自己接上，不必重開。
+func _poll_external(delta: float) -> void:
+	_scan_timer -= delta
+	if _scan_timer > 0.0:
+		return
+	_scan_timer = 2.0
+	_dir_signature(DIR_MUSIC, "music")
+	_dir_signature(DIR_SFX, "sfx")
+
+
+func _dir_signature(dir: String, which: String) -> void:
+	if not DirAccess.dir_exists_absolute(dir):
+		return
+	var names: Array[String] = []
+	for f in DirAccess.get_files_at(dir):
+		if AUDIO_EXT.has(f.get_extension().to_lower()):
+			names.append(f)
+	names.sort()
+	var sig := ""
+	for f in names:
+		sig += f + "|"
+	if which == "music" and sig != _music_sig:
+		_reload_music()
+	elif which == "sfx" and sig != _sfx_sig:
+		_reload_sfx()
+
+
+func _try_load(path: String) -> AudioStream:
+	if not ResourceLoader.exists(path):
+		return null
+	var res := load(path)
+	return res as AudioStream
+
+
+## 切換背景音樂。回傳目前_track 名称；沒有外部音樂則回空字串。
+func set_bgm_track(index: int) -> String:
+	if not using_external_bgm or _bgm_tracks.is_empty():
+		return ""
+	var i := posmod(index, _bgm_tracks.size())
+	_bgm_player.stream = _bgm_tracks[i]
+	_bgm_player.play()
+	_apply_bgm_loop()
+	return _bgm_track_names[i]
+
+
+func next_bgm() -> String:
+	if not using_external_bgm:
+		return ""
+	return set_bgm_track(_bgm_index() + 1)
+
+
+func bgm_track_name() -> String:
+	if _bgm_player == null or _bgm_player.stream == null:
+		return ""
+	var i := _bgm_tracks.find(_bgm_player.stream)
+	return _bgm_track_names[i] if i >= 0 else ""
+
+
+func has_external_bgm() -> bool:
+	return using_external_bgm
+
+
+# ── 播放模式 ────────────────────────────────────────────────────────────
+## Godot 匯入 mp3 預設 loop 關閉，所以「單曲循環」必須手動開 loop；
+## 「全部輪播」則關閉 loop，靠 finished 訊號接下一首。
+func set_bgm_mode(mode: int) -> void:
+	_bgm_mode = clampi(mode, 0, 1)
+	SaveGame.set_setting("bgm_mode", _bgm_mode)
+	_apply_bgm_loop()
+	if _bgm_mode == 1 and _bgm_tracks.size() > 1 and not _bgm_player.playing:
+		set_bgm_track(_bgm_index())
+
+
+func bgm_mode() -> int:
+	return _bgm_mode
+
+
+func _apply_bgm_loop() -> void:
+	if not using_external_bgm or _bgm_player == null:
+		return
+	var want_loop := _bgm_mode == 0 or _bgm_tracks.size() <= 1
+	for s in _bgm_tracks:
+		# Godot 4.7：MP3 / OggVorbis 用 bool 的 loop；WAV 用 int 的 loop_mode
+		if s is AudioStreamMP3:
+			(s as AudioStreamMP3).loop = want_loop
+		elif s is AudioStreamOggVorbis:
+			(s as AudioStreamOggVorbis).loop = want_loop
+		elif s is AudioStreamWAV:
+			(s as AudioStreamWAV).loop_mode = 1 if want_loop else 0
+	if want_loop and not _bgm_player.playing:
+		_bgm_player.play()
+
+
+func _bgm_index() -> int:
+	if _bgm_player == null or _bgm_player.stream == null:
+		return 0
+	return maxi(0, _bgm_tracks.find(_bgm_player.stream))
+
+
+## 重新播放目前這首
+func replay_bgm() -> void:
+	if not using_external_bgm or _bgm_player == null:
+		return
+	_bgm_player.stop()
+	_bgm_player.play()
+
+
+func _on_bgm_finished() -> void:
+	if _bgm_mode == 1 and _bgm_tracks.size() > 1:
+		set_bgm_track(_bgm_index() + 1)
+
+
+func bgm_label() -> String:
+	if not using_external_bgm:
+		return "內建程序化配樂"
+	return "%d / %d　%s" % [_bgm_index() + 1, _bgm_tracks.size(), bgm_track_name()]
+
+
+func report() -> String:
+	if using_external_bgm:
+		return "外部 BGM：%s" % ", ".join(_bgm_track_names)
+	return "內建程序化配樂（把 mp3 丟進 audio/music/ 即可替換）"
+
+
+# ── 匯流排 ──────────────────────────────────────────────────────────────
+func _setup_buses() -> void:
+	_music_bus_idx = _ensure_bus(BUS_MUSIC)
+	_sfx_bus_idx = _ensure_bus(BUS_SFX)
+	_apply_volumes()
+
+
+func _ensure_bus(name: String) -> int:
+	var existing := AudioServer.get_bus_index(name)
+	if existing >= 0:
+		return existing
+	AudioServer.add_bus()
+	var idx := AudioServer.bus_count - 1
+	AudioServer.set_bus_name(idx, name)
+	AudioServer.set_bus_send(idx, BUS_MASTER)
+	return idx
+
+
+func _apply_volumes() -> void:
+	var s: Dictionary = SaveGame.settings
+	_set_bus_db(BUS_MASTER, linear_to_db(float(s.get("master_volume", 0.9))))
+	_set_bus_db(BUS_SFX, linear_to_db(float(s.get("sfx_volume", 0.9))))
+	_set_bus_db(BUS_MUSIC, linear_to_db(float(s.get("music_volume", 0.38))))
+
+
+func _set_bus_db(bus: String, db: float) -> void:
+	var i := AudioServer.get_bus_index(bus)
+	if i >= 0:
+		AudioServer.set_bus_mute(i, db <= -79.0)
+		AudioServer.set_bus_volume_db(i, maxf(db, -80.0))
+
+
+func refresh_volumes() -> void:
+	_apply_volumes()
+	if using_external_bgm and _bgm_player != null:
+		_bgm_player.volume_db = linear_to_db(clampf(float(SaveGame.get_setting("music_volume", 0.38)), 0.0, 1.0))
+
+
+# ── 播放器池 ────────────────────────────────────────────────────────────
+func _build_voices() -> void:
+	for i in SFX_VOICES:
+		var p := AudioStreamPlayer.new()
+		p.bus = BUS_SFX
+		p.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(p)
+		_sfx_players.append(p)
+	for i in MUSIC_VOICES:
+		var p := AudioStreamPlayer.new()
+		p.bus = BUS_MUSIC
+		p.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(p)
+		_music_players.append(p)
+
+
+func _free_voice(pool: Array[AudioStreamPlayer]) -> AudioStreamPlayer:
+	for p in pool:
+		if not p.playing:
+			return p
+	# 全忙就搶最老的一個
+	return pool[randi() % pool.size()]
+
+
+# ── 合成核心 ────────────────────────────────────────────────────────────
+## 把浮點緩衝低通濾波 + 軟飽和之後轉成 16-bit PCM。
+## 少了這一步，程序化合成的鋸齒波與高次諧波會非常刺耳。
+func _render(duration: float, fn: Callable, lowpass_hz := 11000.0) -> AudioStreamWAV:
+	var n := int(MIX_RATE * duration)
+	var raw := PackedFloat32Array()
+	raw.resize(n)
+	for i in n:
+		raw[i] = float(fn.call(float(i) / MIX_RATE, i))
+
+	# 單極低通：把高頻（刺耳的來源）壓下來
+	var dt := 1.0 / float(MIX_RATE)
+	var rc := 1.0 / (TAU * maxf(lowpass_hz, 40.0))
+	var a := dt / (rc + dt)
+	var prev := 0.0
+	for i in n:
+		prev += a * (raw[i] - prev)
+		raw[i] = prev
+
+	# tanh 軟飽和：讓峰值圓潤，不會有數位截斷的爆音
+	var buf := PackedByteArray()
+	buf.resize(n * 2)
+	for i in n:
+		var v := tanh(raw[i] * 1.15) * 0.92
+		v = clampf(v, -1.0, 1.0)
+		var s := int(v * 32767.0)
+		if s < 0:
+			s += 65536
+		buf.encode_s16(i * 2, s)
+	var st := AudioStreamWAV.new()
+	st.format = AudioStreamWAV.FORMAT_16_BITS
+	st.mix_rate = MIX_RATE
+	st.stereo = false
+	st.data = buf
+	return st
+
+
+func _osc(phase: float, wave: String) -> float:
+	var p := fposmod(phase, 1.0)
+	match wave:
+		"sine":
+			return sin(p * TAU)
+		"tri":
+			return 4.0 * absf(p - 0.5) - 1.0
+		"saw":
+			return 2.0 * p - 1.0
+		"square":
+			return 1.0 if p < 0.5 else -1.0
+		"pulse":
+			return 1.0 if p < 0.25 else -1.0
+		_:
+			return sin(p * TAU)
+
+
+## 帶指數衰減的包絡
+static func env(t: float, attack: float, decay: float) -> float:
+	if t < attack:
+		return t / maxf(attack, 0.0001)
+	return exp(-(t - attack) / maxf(decay, 0.0001))
+
+
+func _build_synth_bank() -> void:
+	# 柔和的木質撥弦（配樂主音）
+	_synth["pluck"] = _render(0.55, func(t: float, _i: int):
+		var e := env(t, 0.004, 0.16)
+		var v := _osc(t, "sine") * 0.6 + _osc(t * 2.0, "tri") * 0.18
+		return v * e, 5200.0)
+	# 電子貝斯
+	_synth["bass"] = _render(0.60, func(t: float, _i: int):
+		var e := env(t, 0.006, 0.22)
+		var v := _osc(t, "saw") * 0.35 + _osc(t, "sine") * 0.5
+		return v * e * 0.9, 1800.0)
+	# 木琴般的鐘（里程碑／提示）。刻意拿掉高次諧波 —— 那是刺耳的來源。
+	_synth["bell"] = _render(1.6, func(t: float, _i: int):
+		var e := env(t, 0.003, 0.30)
+		var v := _osc(t * 440.0, "sine") * 0.5
+		v += _osc(t * 440.0 * 2.0, "sine") * 0.16
+		v += _osc(t * 440.0 * 3.01, "sine") * 0.05
+		return v * e, 3400.0)
+	# 寬廣 pad
+	_synth["pad"] = _render(2.2, func(t: float, _i: int):
+		var e := minf(t / 0.5, 1.0) * exp(-t / 1.4)
+		var v := _osc(t * 220.0, "sine") * 0.4
+		v += _osc(t * 220.0 * 1.5, "sine") * 0.18
+		v += _osc(t * 220.0 * 2.0, "sine") * 0.12
+		return v * e * 0.6, 2400.0)
+	# 白噪音（碎石、打滑）
+	_synth["noise"] = _render(0.7, func(t: float, _i: int):
+		var e := env(t, 0.002, 0.13)
+		return (randf() * 2.0 - 1.0) * e, 3000.0)
+	# 上行琶音（完美答對）
+	_synth["rise"] = _render(0.42, func(t: float, _i: int):
+		var e := env(t, 0.002, 0.15)
+		var f := 1.0 + t * 3.2
+		return _osc(t * f * 520.0, "tri") * e * 0.7
+	)
+	# 下行掃頻（閃避）
+	_synth["sweep"] = _render(0.36, func(t: float, _i: int):
+		var e := env(t, 0.01, 0.11)
+		var f := 1.0 - t * 1.8
+		return (_osc(t * maxf(f, 0.05) * 700.0, "sine") * 0.6
+			+ (randf() * 2.0 - 1.0) * 0.25) * e, 3200.0)
+
+
+func _build_sfx_bank() -> void:
+	# 換線：短促柔和的木頭敲擊
+	_sfx_bank["shift"] = _render(0.13, func(t: float, _i: int):
+		var e := env(t, 0.001, 0.035)
+		return (_osc(t * 660.0, "tri") * 0.5 + _osc(t * 1320.0, "sine") * 0.2) * e, 4200.0)
+	# 撞碎石碑：低頻衝擊 + 碎裂雜訊（雜訊壓低，不然會像撕紙）
+	_sfx_bank["shatter"] = _render(0.55, func(t: float, _i: int):
+		var body := _osc(t * (130.0 - t * 120.0), "sine") * env(t, 0.001, 0.11) * 0.85
+		var crack := (randf() * 2.0 - 1.0) * env(t, 0.001, 0.07) * 0.28
+		return body + crack, 3600.0)
+	# 答錯：柔和的下行木質音（原本的不協和鋸齒太刺耳）
+	_sfx_bank["miss"] = _render(0.42, func(t: float, _i: int):
+		var f := 240.0 - t * 150.0
+		var e := env(t, 0.006, 0.16)
+		return (_osc(t * f, "tri") * 0.45 + _osc(t * f * 1.5, "sine") * 0.22) * e, 2000.0)
+	# UI 點擊
+	_sfx_bank["tap"] = _render(0.10, func(t: float, _i: int):
+		var e := env(t, 0.001, 0.03)
+		return _osc(t * 900.0, "sine") * e * 0.5, 4000.0)
+	# UI 返回
+	_sfx_bank["back"] = _render(0.14, func(t: float, _i: int):
+		var e := env(t, 0.001, 0.05)
+		return _osc(t * 420.0, "sine") * e * 0.45, 3200.0)
+	# 倒數滴答
+	_sfx_bank["tick"] = _render(0.08, func(t: float, _i: int):
+		var e := env(t, 0.001, 0.02)
+		return _osc(t * 1500.0, "sine") * e * 0.22, 3000.0)
+
+
+# ── 播放 ────────────────────────────────────────────────────────────────
+## 有外部音檔就用外部的，沒有才用程序化合成。
+func play(name: String, pitch := 1.0, volume_db := 0.0) -> void:
+	var stream: AudioStream = _ext_sfx.get(name, _sfx_bank.get(name))
+	if stream == null:
+		return
+	var p := _free_voice(_sfx_players)
+	p.stream = stream
+	p.pitch_scale = clampf(pitch, 0.25, 4.0)
+	p.volume_db = volume_db
+	p.play()
+
+
+func play_wave(name: String, pitch := 1.0, volume_db := 0.0, bus := BUS_SFX) -> void:
+	if not _synth.has(name):
+		return
+	var pool: Array[AudioStreamPlayer] = _music_players if bus == BUS_MUSIC else _sfx_players
+	var p := _free_voice(pool)
+	p.stream = _synth[name]
+	p.pitch_scale = clampf(pitch, 0.1, 6.0)
+	p.volume_db = volume_db
+	p.play()
+
+
+static func midi_to_ratio(semitones: float) -> float:
+	return pow(2.0, semitones / 12.0)
+
+
+func _chord_tone(degree: int, octave: int) -> float:
+	var idx := posmod(degree, SCALE.size())
+	var oct_shift := floori(float(degree) / float(SCALE.size()))
+	var semis: float = float(SCALE[idx]) + 12.0 * float(oct_shift + octave)
+	return midi_to_ratio(semis)
+
+
+# ── UI / 玩法快捷音 ─────────────────────────────────────────────────────
+func ui_tap() -> void: play("tap", randf_range(0.96, 1.05), -6.0)
+func ui_back() -> void: play("back", 1.0, -5.0)
+func lane_shift() -> void: play("shift", randf_range(0.95, 1.10), -8.0)
+func tick() -> void: play("tick", 1.0, -12.0)
+
+
+## 答對只用「石頭碎掉」這個實體音效回饋。
+##
+## 原本這裡有一條 bell 音階（每題升 2 半音、12 半音封頂），
+## 結果封頂後整局都是同一個音，合成音聽久就膩。
+## 現在拿掉音階，改用同一個碎裂音的音色差異（亮／暗、不加旋律），
+## 玩家靠視覺與震動拿節奏，不靠耳朵爬音階。
+func hit_perfect() -> void:
+	play("shatter", 1.0, 1.5)
+	play("shatter", 1.34, -7.0)   # 第二聲更亮的裂痕，取代音階作為獎勵
+
+
+func hit_good() -> void:
+	play("shatter", 1.0, -2.0)
+
+
+## 換區提示：低沉木質撞擊 + 氣聲，不像旋律就不會膩
+func zone_change(index: int) -> void:
+	play("shift", 0.82, -2.0)
+	play_wave("noise", 0.45, -6.0)
+	# 每區一個固定的「圖章」音高：不是爬音階，是每區各自一個聲記號
+	play_wave("bell", midi_to_ratio(float(index) * 5.0) * 0.5, -9.0)
+
+
+## 衝刺關起步：往上推的風切聲
+func sprint() -> void:
+	play_wave("sweep", 1.25, -2.0)
+	play("tick", 1.5, -6.0)
+
+
+func miss() -> void:
+	play("miss", 1.0, 1.0)
+	play_wave("noise", 0.6, -4.0)
+
+
+func dodge() -> void:
+	play_wave("sweep", 1.0, -3.0)
+
+
+func relic_pick() -> void:
+	play_wave("bell", 1.0, -2.0)
+	play_wave("bell", midi_to_ratio(7.0), -6.0)
+	play_wave("bell", midi_to_ratio(12.0), -10.0)
+
+
+func fanfare() -> void:
+	play_wave("bell", 0.5, -1.0)
+	play_wave("bell", midi_to_ratio(4.0) * 0.5, -4.0)
+	play_wave("bell", midi_to_ratio(7.0) * 0.5, -7.0)
+	play_wave("bell", midi_to_ratio(12.0) * 0.5, -3.0)
+
+
+func countdown_tick(final := false) -> void:
+	play("tick", 1.0 if not final else 1.5, -6.0)
+
+
+func word_collect() -> void:
+	play_wave("bell", 2.0, -10.0)
+
+
+# ── 風聲 ────────────────────────────────────────────────────────────────
+func _start_wind() -> void:
+	_wind = AudioStreamPlayer.new()
+	_wind.bus = BUS_SFX
+	_wind.volume_db = -60.0
+	var st := _render(2.0, func(t: float, _i: int):
+		# 平滑的棕噪音感 + 緩慢起伏
+		var base := (randf() * 2.0 - 1.0)
+		var lfo := 0.6 + 0.4 * sin(t * 2.4)
+		return base * lfo * 0.25
+	)
+	st.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	st.loop_begin = 0
+	st.loop_end = int(MIX_RATE * 2.0)
+	_wind.stream = st
+	add_child(_wind)
+	_wind.play()
+
+
+## 由 Main 每幀呼叫：speed01 = 0..1
+func set_wind(speed01: float, delta := 0.016) -> void:
+	if _wind == null:
+		return
+	# 分區會改變音量與音色：草木是輕微的風聲、雨天才是雨聲、嵐最吵。
+	# 原本不管哪一區都用同一組數值，所以整局都有一層持續的嘶嘶聲，
+	# 進了雨區之後特別明顯，像有東西在反覆重播。
+	var lo := -34.0
+	var hi := -16.0
+	var pitch := 0.85
+	match _weather:
+		"rain":
+			lo = -24.0
+			hi = -7.0
+			pitch = 1.15
+		"storm":
+			lo = -22.0
+			hi = -5.0
+			pitch = 1.30
+		"combo":
+			lo = -38.0
+			hi = -22.0
+			pitch = 0.90
+		_:
+			pass
+	var target := lerpf(lo, hi, clampf(speed01, 0.0, 1.0))
+	wind_gain_db = lerpf(wind_gain_db, target, clampf(delta * 4.0, 0.0, 1.0))
+	_wind.volume_db = wind_gain_db
+	_wind.pitch_scale = lerpf(pitch, pitch + 0.5, clampf(speed01, 0.0, 1.0))
+
+
+## 分區天氣：決定風聲／雨聲的音量與音色（"" = 草木）
+func set_weather(kind: String) -> void:
+	_weather = kind
+
+
+# ── 自適應配樂排程 ──────────────────────────────────────────────────────
+## intensity 0..1 控制速度與層數
+func set_intensity(v: float) -> void:
+	intensity = clampf(v, 0.0, 1.0)
+	_step_len = lerpf(0.255, 0.135, intensity)
+	_enabled_voices = 2 + int(round(intensity * 3.0))
+
+
+func music_enabled() -> bool:
+	return music_on
+
+
+func _process(delta: float) -> void:
+	_poll_external(delta)
+	if not music_on or using_external_bgm:
+		return
+	_step_timer += delta
+	var guard := 0
+	while _step_timer >= _step_len and guard < 8:
+		_step_timer -= _step_len
+		_emit_step(_step)
+		_step += 1
+		guard += 1
+	if _step >= 16:
+		_step = 0
+		_bar += 1
+		_chord = (_bar / 2) % CHORDS.size()
+
+
+func _emit_step(step: int) -> void:
+	if step == _last_played_step:
+		return
+	_last_played_step = step
+	var chord: Array = CHORDS[_chord]
+	var s := step % 16
+
+	# 低音：每拍
+	if s % 4 == 0:
+		var root: int = int(chord[0])
+		play_wave("bass", _chord_tone(root, 0) * 0.5, -14.0, BUS_MUSIC)
+
+	# 琶音：8 分音符，強度越高越密
+	var arp_every := 4 if _enabled_voices < 4 else 2
+	if s % arp_every == 0:
+		var idx := int(s / arp_every) % chord.size()
+		var deg: int = int(chord[idx]) + (2 if idx == 0 else 0)
+		play_wave("pluck", _chord_tone(deg, 2) * 0.5, -17.0, BUS_MUSIC)
+
+	# 旋律點綴：高強度才出現
+	if _enabled_voices >= 5 and s in [3, 7, 11, 15]:
+		var deg2: int = int(chord[(s / 4) % chord.size()]) + 4
+		play_wave("bell", _chord_tone(deg2, 3) * 0.5, -22.0, BUS_MUSIC)
+
+	# Pad：每小節起頭
+	if s == 0:
+		for i in mini(2, chord.size()):
+			play_wave("pad", _chord_tone(int(chord[i]), 1) * 0.5, -24.0, BUS_MUSIC)

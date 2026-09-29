@@ -1,0 +1,33 @@
+# Godot 產生的匯入快取與編輯器狀態。
+# 每次開啟都會重建，而且檔案數與內容都跟機器綁定，進版控只會一直產生雜訊 diff。
+.godot/
+*.translation
+
+# 匯出產物。Web 版由 GitHub Actions 每次 push 重新產生，不需要進版控。
+# build/ 底下還有 make_certs.py 產生的自簽憑證，絕對不能公開。
+build/
+
+# 開發期間的截圖。除錯用，不佔版控空間。
+shots/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 憑證與金鑰 —— 就算有人手滑把 build/ 刪掉，這裡再擋一次。
+*.key
+*.pem
+*.p12
+*.jks
+*.keystore
+.env
+
+# 作業系統
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 編輯器
+.vscode/
+.idea/
+*.swp
