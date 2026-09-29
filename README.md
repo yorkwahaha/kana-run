@@ -148,23 +148,64 @@ I:\Projects\Kana Run\audio\sfx\       ← 覆蓋單一音效，檔名必須完�
 ## 網頁版音訊解鎖
 
 所有瀏覽器都禁止網頁在沒有使用者互動時發聲（Web Audio 的
-`AudioContext` 初始是 `suspended`）。Godot 4 的 web 匯出有自己的處理，
-但只涵蓋啟動畫面的那一次點擊；遊戲進入標題 → 開始 → 設定好幾層之後，
-有些瀏覽器不會自動恢復。
+`AudioContext` 初始是 `suspended`）。`Sfx._install_web_audio_unlock()`
+掛了 `pointerdown` / `touchstart` / `keydown` / `mousedown` / `click`
+五種事件，收到任一使用者輸入就嘗試恢復。冪等，重複呼叫沒有副作用。
 
-`Sfx._install_web_audio_unlock()` 掛了 `pointerdown` / `touchstart` /
-`keydown` / `mousedown` / `click` 五種事件，只要收到任一使用者輸入
-就嘗試 `resume()`。冪等，重複呼叫沒有副作用。
+**這個腳本目前無法確認有效** —— 見上方「真正的根因」一節。
+`_godot_audio_resume` 是 wasm import 函式，沒有掛在 `window` 上，
+所以腳本裡的呼叫實際上是 no-op。改成 Stream 播放模式後，
+音訊驅動本身就能正常運作，這個腳本目前只是雙保險。
 
-## 網頁版沒有聲音時的排查順序
+## 網頁版沒聲音時的排查順序
 
-症狀都是「匯出成功、沒有任何錯誤訊息」，所以只能靠觀察判斷：
+症狀都是「匯出成功、沒有任何錯誤訊息」，所以只能靠觀察判斷。
 
-1. **設定畫面寫「目前使用內建程序化配樂」** → BGM 檔案沒被讀到。
-   查 pck 裡有沒有 `.mp3str`（`grep -c '\.mp3str' index.pck`）
-2. **顯示了 BGM 編號但沒聲音** → 格式不支援，或 AudioContext 被暫停
-3. **音效有聲音但 BGM 沒有** → 幾乎一定是 Ogg 格式的問題
-4. **完全沒聲音** → AudioContext 沒解鎖，需要使用者點一下畫面
+**先確認是哪一種「沒聲音」** — 開瀏覽器主控台（F12）看 Console：
+
+| Console 訊息 | 原因 |
+|---|---|
+| 沒有任何音訊訊息，且設定畫面寫「內建程序化配樂」 | 音訊沒被打包或讀不到 |
+| `The AudioContext was not allowed to start` | 需要使用者手勢解鎖 |
+| 設定畫面顯示 `2 / 4 hit` 但沒聲音 | 檔案在，但格式不支援或 ctx 被暫停 |
+
+在 Console 執行 `Sfx.audio_debug()` 可以拿到 AudioContext 的實際狀態。
+
+### 真正的根因：Sample 播放模式
+
+**Godot 4.3+ 在 web 預設用 Sample 播放模式，它在 web 上會讓整個遊戲靜默** ——
+連程序化音效都沒有，畫面正常跑、BGM 列表也正確，就是完全沒聲音。
+Godot 官方文件明確建議改用 Stream 模式。本專案在 `project.godot` 設了：
+
+```
+[audio]
+general/default_playback_type="Stream"
+```
+
+代價是延遲較高（關閉 thread 時尤其明顯），對這個遊戲可以接受。
+
+### 診斷這件事本身比想像中難
+
+這個問題沒有任何錯誤訊息可以從遊戲內看到，我為此猜錯了兩次：
+
+1. 猜 `window.__godotAudioContexts` —— 這個名稱根本不存在
+2. 猜 `Module._godot_audio_resume` —— 那是 Emscripten 的 **wasm import 函式**，
+   只存在於 `wasmImports` 物件裡給 wasm 呼叫，**沒有掛到 `window` 或 `Module` 上**，
+   所以從 JS 無法呼叫
+
+最後是用 Chrome DevTools Protocol 抓瀏覽器主控台，才看到真正的
+`The AudioContext was not allowed to start`。
+
+**headless 無法驗證這件事**：CDP 的合成點擊不算真實使用者手勢，
+而 Web Audio 的解鎖必須要有真實手勢。`GodotAudio` 也在 module scope，
+從 `Runtime.evaluate` 看不到。這個問題只能由真實瀏覽器 + 真實點擊確認。
+
+### 排查順序
+
+1. 設定畫面寫「內建程序化配樂」→ 查 pck：`grep -c '\.mp3str' index.pck`
+2. 顯示 BGM 編號但沒聲音 → Console 抓 `The AudioContext was not allowed to start`
+3. 音效有聲音但 BGM 沒有 → 幾乎一定是 Ogg 格式
+4. 完全沒聲音 → Sample/Stream 播放模式，或 AudioContext 未解鎖
 
 CI 會實際執行匯出出的 pck 並確認讀得到 BGM，不要只比對檔案大小 ——
 pck 有內部壓縮，13MB 原始音訊進去只會變成 7MB 左右。
