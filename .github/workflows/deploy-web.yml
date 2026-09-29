@@ -83,21 +83,23 @@ jobs:
 
       # 第一次 checkout 之後 .godot/ 是空的，資源還沒匯入。
       # 不先 --import 直接匯出會得到一個沒有任何材質的 pck。
+      #
+      # 匯入的副檔名跟來源檔不同，要照 Godot 的命名規則檢查：
+      #   .ogg      -> .oggvorbisstr
+      #   .mp3      -> .mp3str
+      #   .ttf      -> .fontdata     ← 不是 .ttf
       - name: Import resources
         run: |
-          godot --headless --path . --import 2>&1 | tail -5
-          # 匯入在無音效輸出的 headless 環境下可能「看起來成功」但其實沒產出。
-          # 逐一檢查關鍵資產，缺任何一個就明確失敗，不要讓它靜靜流到部署。
+          godot --headless --path . --import 2>&1 | tail -3
           missing=0
-          for f in .godot/imported/*.oggvorbisstr; do
-            [ -e "$f" ] || { echo "沒有匯入任何 ogg 音訊"; missing=1; }
-            break
+          for pat in "*.oggvorbisstr" "*.mp3str" "*.fontdata"; do
+            n=$(ls .godot/imported/$pat 2>/dev/null | wc -l)
+            echo "imported $pat: $n"
+            if [ "$n" -eq 0 ]; then
+              echo "★ 沒有匯入任何 $pat"
+              missing=1
+            fi
           done
-          ls .godot/imported/*.mp3str >/dev/null 2>&1 || { echo "沒有匯入任何 mp3 語音"; missing=1; }
-          ls .godot/imported/*.ttf >/dev/null 2>&1 || { echo "沒有匯入字型"; missing=1; }
-          echo "imported oggvorbisstr: $(ls .godot/imported/*.oggvorbisstr 2>/dev/null | wc -l)"
-          echo "imported mp3str      : $(ls .godot/imported/*.mp3str 2>/dev/null | wc -l)"
-          echo "imported ttf        : $(ls .godot/imported/*.ttf 2>/dev/null | wc -l)"
           exit $missing
 
       - name: Export web
