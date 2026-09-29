@@ -1,11 +1,47 @@
 extends Node3D
-## 背面的跑步立繪。鏡頭在身後，側面的圖會像橫著跑過馬路。
+## 正後方的跑步立繪。鏡頭在身後，人背對鏡頭往前跑。
 ##
 ## 用 QuadMesh 而不是 Sprite3D：倒地測試只量 MeshInstance3D 的包圍盒。
-## 腳底放在本地 y=0。撞飛時整個 rig 繞 X 轉到 -90°，人就趴在路面上。
+## 腳底放在本地 y=0。倒下、撞飛都換畫好的連續幀，不再把站著的圖轉平。
 
 const FIG_H := 1.78
 const GROUND_Y := 0.03
+
+const _RUN: Array[Texture2D] = [
+	preload("res://assets/runner/run_0.png"),
+	preload("res://assets/runner/run_1.png"),
+	preload("res://assets/runner/run_2.png"),
+	preload("res://assets/runner/run_3.png"),
+	preload("res://assets/runner/run_4.png"),
+	preload("res://assets/runner/run_5.png"),
+	preload("res://assets/runner/run_6.png"),
+	preload("res://assets/runner/run_7.png"),
+	preload("res://assets/runner/run_8.png"),
+	preload("res://assets/runner/run_9.png"),
+	preload("res://assets/runner/run_10.png"),
+	preload("res://assets/runner/run_11.png"),
+]
+const _FALL: Array[Texture2D] = [
+	preload("res://assets/runner/fall_0.png"),
+	preload("res://assets/runner/fall_1.png"),
+	preload("res://assets/runner/fall_2.png"),
+	preload("res://assets/runner/fall_3.png"),
+	preload("res://assets/runner/fall_4.png"),
+	preload("res://assets/runner/fall_5.png"),
+	preload("res://assets/runner/fall_6.png"),
+	preload("res://assets/runner/fall_7.png"),
+	preload("res://assets/runner/fall_8.png"),
+	preload("res://assets/runner/fall_9.png"),
+]
+const _FLING: Array[Texture2D] = [
+	preload("res://assets/runner/fling_0.png"),
+	preload("res://assets/runner/fling_1.png"),
+	preload("res://assets/runner/fling_2.png"),
+	preload("res://assets/runner/fling_3.png"),
+	preload("res://assets/runner/fling_4.png"),
+	preload("res://assets/runner/fling_5.png"),
+	preload("res://assets/runner/fling_6.png"),
+]
 
 var speed01 := 0.0
 
@@ -13,8 +49,7 @@ var _rig: Node3D
 var _billboard: MeshInstance3D
 var _shadow: MeshInstance3D
 var _mat: StandardMaterial3D
-var _frames: Array[Texture2D] = []
-var _frame := -1
+var _tex: Texture2D
 
 var _phase := 0.0
 var _lane := 0.0
@@ -42,11 +77,7 @@ func _build() -> void:
 	_shadow = SceneKit.make_contact_shadow(0.62)
 	add_child(_shadow)
 
-	_frames = [
-		preload("res://assets/runner/run_0.png"),
-		preload("res://assets/runner/run_1.png"),
-	]
-	var tex := _frames[0]
+	var tex := _RUN[0]
 	var aspect := tex.get_width() / float(tex.get_height())
 
 	_rig = Node3D.new()
@@ -67,7 +98,7 @@ func _build() -> void:
 	_billboard.position.y = FIG_H * 0.5
 	_billboard.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_rig.add_child(_billboard)
-	_frame = 0
+	_tex = tex
 
 
 func set_lane(x: float) -> void:
@@ -88,7 +119,7 @@ func stagger() -> void:
 	_duck_target = maxf(_duck_target, 0.55)
 
 
-## flung=true：被撞飛後趴在路上。false：體力用盡，往前折下去。
+## flung=true：被撞飛，人在空中翻出去再趴下。false：體力用盡，往前跪倒。
 func collapse(flung := false) -> void:
 	_collapse = 0.0
 	_collapse_on = true
@@ -126,6 +157,7 @@ func reset() -> void:
 		_billboard.scale = Vector3.ONE
 	if _shadow != null:
 		_shadow.scale = Vector3.ONE
+	_set_tex(_RUN[0])
 
 
 func _process(delta: float) -> void:
@@ -142,15 +174,18 @@ func _process(delta: float) -> void:
 	_duck = lerpf(_duck, _duck_target, clampf(delta * 14.0, 0.0, 1.0))
 	_burst = maxf(0.0, _burst - delta * 3.2)
 	_stagger = maxf(0.0, _stagger - delta * 1.5)
-	_phase += delta * (5.4 + speed01 * 7.6)
+	# 靜止約 0.92 秒一個步伐循環，全速約 0.40 秒。十二幀攤在這一圈上。
+	var cycle := lerpf(0.92, 0.40, speed01)
+	_phase += delta / cycle
 
 	var squash := 1.0 - _duck * 0.34
-	var bob := absf(sin(_phase)) * (0.03 + speed01 * 0.035)
+	var bob := absf(sin(_phase * TAU)) * (0.03 + speed01 * 0.035)
 	_billboard.scale = Vector3(1.0 + _burst * 0.05, squash, 1.0)
 	_billboard.position.y = FIG_H * 0.5 * squash + bob
-	_billboard.rotation = Vector3(-0.08 - speed01 * 0.12, 0.0, _stagger * 0.35)
-	_set_frame(0 if sin(_phase) >= 0.0 else 1)
-	_rig.rotation = Vector3(-_stagger * 0.22, _bank * 0.35, _bank)
+	_billboard.rotation = Vector3(-0.03 - speed01 * 0.04, 0.0, _stagger * 0.18)
+	var frame := int(_phase * float(_RUN.size())) % _RUN.size()
+	_set_tex(_RUN[frame])
+	_rig.rotation = Vector3(-_stagger * 0.12, _bank * 0.35, _bank)
 	_shadow.scale = Vector3.ONE * (1.0 - _duck * 0.22)
 
 
@@ -158,57 +193,52 @@ func _process_collapse(delta: float) -> void:
 	if _collapse_flung:
 		_process_fling(delta)
 		return
-	_collapse = minf(1.0, _collapse + delta / 1.4)
-	var t := _collapse
-	var stumble := clampf(t / 0.28, 0.0, 1.0)
-	var sink := clampf((t - 0.22) / 0.55, 0.0, 1.0)
-	var ease := 1.0 - pow(1.0 - sink, 3.0)
+	_collapse = minf(1.0, _collapse + delta / 1.15)
+	var idx := mini(int(_collapse * float(_FALL.size())), _FALL.size() - 1)
+	_set_tex(_FALL[idx])
 	position.x = _lane
-	_rig.rotation = Vector3(
-		lerpf(0.0, 0.45, stumble) * (1.0 - ease) - ease * 0.15,
-		0.0,
-		_bank * (1.0 - ease))
-	var fold := lerpf(1.0, 0.72, ease)
-	_billboard.scale = Vector3(1.0, fold, 1.0)
-	_billboard.position.y = FIG_H * 0.5 * fold
-	_billboard.rotation = Vector3(lerpf(0.0, -0.85, ease), 0.0, 0.0)
-	_set_frame(0)
+	_rig.rotation = Vector3(lerpf(0.0, 0.12, _collapse), 0.0, _bank * (1.0 - _collapse))
+	_billboard.scale = Vector3.ONE
+	_billboard.position.y = FIG_H * 0.5
+	_billboard.rotation = Vector3.ZERO
 	var gs := 1.0 if _collapse >= 0.995 else clampf(delta * 14.0, 0.0, 1.0)
 	_settle_ground(gs)
-	_shadow.scale = Vector3.ONE * (1.0 - 0.25 * ease)
+	_shadow.scale = Vector3.ONE * lerpf(1.0, 0.62, _collapse)
 
 
-## 被撞飛：往前 5.6 公尺、拋高 1.3，空中翻到面朝下，落地後貼著路面。
+## 被撞飛：往前 5.6 公尺、拋高 1.3。空中播翻轉的幀，落地播趴下的那一張。
 func _process_fling(delta: float) -> void:
 	_fling_t += delta
-	var flight := 0.62
+	var flight := 0.72
+	var air := _FLING.size() - 1
 	position.x = _lane
 	_billboard.scale = Vector3.ONE
 	_billboard.rotation = Vector3.ZERO
 	_billboard.position.y = FIG_H * 0.5
-	_set_frame(1)
 	if _fling_t < flight:
 		var u := _fling_t / flight
 		position.z = -5.6 * u
 		position.y = sin(PI * u) * 1.3
-		_rig.rotation = Vector3(-u * PI * 2.5, 0.0, -0.18 * u + sin(u * PI) * 0.30)
+		_rig.rotation = Vector3(0.0, 0.0, sin(u * PI) * 0.1)
+		_set_tex(_FLING[mini(int(u * float(air)), air - 1)])
+		_shadow.scale = Vector3.ONE * (1.0 - 0.55 * sin(PI * u))
 	else:
-		var u := clampf((_fling_t - flight) / 0.34, 0.0, 1.0)
+		var u := clampf((_fling_t - flight) / 0.3, 0.0, 1.0)
 		var e := 1.0 - pow(1.0 - u, 3.0)
 		position.z = -5.6
-		position.y = -0.06 * (1.0 - e)
-		_rig.rotation = Vector3(-PI * 0.5, 0.0, lerpf(-0.18, 0.12, e))
-		var gs := 1.0 if _fling_t >= flight + 0.34 else clampf(delta * 12.0, 0.0, 1.0)
+		position.y = -0.04 * (1.0 - e)
+		_rig.rotation = Vector3.ZERO
+		_set_tex(_FLING[_FLING.size() - 1])
+		var gs := 1.0 if _fling_t >= flight + 0.3 else clampf(delta * 12.0, 0.0, 1.0)
 		_settle_ground(gs)
-	_shadow.scale = Vector3.ONE * (1.0 - 0.15 * clampf(_fling_t / 0.6, 0.0, 1.0))
+		_shadow.scale = Vector3.ONE * lerpf(0.7, 1.15, e)
 
 
-func _set_frame(i: int) -> void:
-	i = posmod(i, _frames.size())
-	if i == _frame:
+func _set_tex(tex: Texture2D) -> void:
+	if _mat == null or tex == _tex:
 		return
-	_frame = i
-	_mat.albedo_texture = _frames[i]
+	_tex = tex
+	_mat.albedo_texture = tex
 
 
 func _scan_lowest(r: Node) -> void:
