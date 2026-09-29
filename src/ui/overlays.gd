@@ -168,20 +168,27 @@ func _build_title() -> void:
 
 	var row := _action_row(box)
 
-	var b_start := UiKit.primary_button("開始挑戰", UiKit.VIOLET)
-	b_start.custom_minimum_size = Vector2(250, 60)
-	b_start.pressed.connect(func(): Sfx.ui_tap(); show_brief())
+	var b_start := UiKit.primary_button("開始", UiKit.VIOLET)
+	b_start.custom_minimum_size = Vector2(280, 68)
+	b_start.pressed.connect(func(): Sfx.ui_tap(); start_requested.emit([]))
 	row.add_child(b_start)
 
+	var more := _action_row(box)
+
+	var b_pick := UiKit.button("選擇關卡")
+	b_pick.custom_minimum_size = Vector2(160, 52)
+	b_pick.pressed.connect(func(): Sfx.ui_tap(); show_brief())
+	more.add_child(b_pick)
+
 	var b_dash := UiKit.button("學習儀表板")
-	b_dash.custom_minimum_size = Vector2(190, 60)
+	b_dash.custom_minimum_size = Vector2(160, 52)
 	b_dash.pressed.connect(func(): Sfx.ui_tap(); show_dashboard())
-	row.add_child(b_dash)
+	more.add_child(b_dash)
 
 	var b_set := UiKit.button("設定")
-	b_set.custom_minimum_size = Vector2(120, 60)
+	b_set.custom_minimum_size = Vector2(110, 52)
 	b_set.pressed.connect(func(): Sfx.ui_tap(); show_settings(Page.TITLE))
-	row.add_child(b_set)
+	more.add_child(b_set)
 
 	page.modulate.a = 1.0
 
@@ -435,64 +442,50 @@ func show_results(data: Dictionary) -> void:
 	(box.get_child(box.get_child_count() - 1) as Label).add_theme_color_override(
 		"font_color", UiKit.GOLD if cleared else UiKit.BLOOD)
 
-	var stats := HBoxContainer.new()
-	stats.alignment = BoxContainer.ALIGNMENT_CENTER
-	stats.add_theme_constant_override("separation", 16)
-	stats.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(stats)
-	stats.add_child(_stat_chip("得分", str(int(data.get("score", 0))), UiKit.GOLD))
-	stats.add_child(_stat_chip("答對", str(int(data.get("correct", 0))), UiKit.JADE))
-	stats.add_child(_stat_chip("題數", str(int(data.get("answered", 0))), UiKit.INK))
-	stats.add_child(_stat_chip("最高連段", str(int(data.get("best_combo", 0))), UiKit.VIOLET))
-	stats.add_child(_stat_chip("撞毀", str(int(data.get("wrong", 0))), UiKit.BLOOD))
-	stats.add_child(_stat_chip("閃避", str(int(data.get("dodged", 0))), UiKit.INK_DIM))
+	var score := UiKit.label(str(int(data.get("score", 0))), 84, UiKit.GOLD, true)
+	score.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	score.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(score)
 
-	# 學習診斷
-	var diag := UiKit.card(16, Color(0.06, 0.055, 0.12, 0.9), Color(0.45, 0.52, 1.0, 0.28))
-	diag.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	diag.custom_minimum_size = Vector2(820, 0)
-	box.add_child(diag)
-
-	var dv := VBoxContainer.new()
-	dv.add_theme_constant_override("separation", 6)
-	diag.add_child(dv)
-	dv.add_child(UiKit.label("學習診斷　這一局最需要複習的假名", 19, UiKit.INK, true))
-
-	var weak: Array = data.get("weakest", [])
-	if weak.is_empty():
-		dv.add_child(UiKit.label("累積紀錄還不夠，再跑一局就會出現分析。", 17, UiKit.INK_DIM))
-	else:
-		var grid := HFlowContainer.new()
-		grid.add_theme_constant_override("h_separation", 8)
-		grid.add_theme_constant_override("v_separation", 8)
-		for kana in weak:
-			var chip := UiKit.kana_chip(Curriculum.s(kana), KanaDB.romaji(kana), Srs.mastery(kana), 32)
-			chip.tooltip_text = "正確率 %d%%　平均 %.0f ms" % [
-				int(round(Srs.accuracy(kana) * 100.0)), Srs.avg_ms(kana)]
-			grid.add_child(chip)
-		dv.add_child(grid)
-
-	var slow: Array = data.get("slowest", [])
-	if not slow.is_empty():
-		var parts: Array = []
-		for kana in slow:
-			parts.append("%s %s %.0fms" % [Curriculum.s(kana), KanaDB.romaji(kana), Srs.avg_ms(kana)])
-		var line := UiKit.label("反應最慢：" + "　".join(parts), 16, UiKit.GOLD)
-		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		line.custom_minimum_size = Vector2(780, 0)
-		dv.add_child(line)
+	var combo := UiKit.label("最高連段　%d" % int(data.get("best_combo", 0)), 28, UiKit.VIOLET, true)
+	combo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	combo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(combo)
 
 	var row := _action_row(box)
 
 	var again := UiKit.primary_button("再跑一次", UiKit.VIOLET)
-	again.custom_minimum_size = Vector2(220, 54)
+	again.custom_minimum_size = Vector2(320, 72)
 	again.pressed.connect(func(): Sfx.ui_tap(); restart_requested.emit())
 	row.add_child(again)
 
 	var home := UiKit.button("回到標題")
-	home.custom_minimum_size = Vector2(200, 54)
+	home.custom_minimum_size = Vector2(180, 72)
 	home.pressed.connect(func(): Sfx.ui_back(); quit_to_title.emit())
 	row.add_child(home)
+
+	var stats := HBoxContainer.new()
+	stats.alignment = BoxContainer.ALIGNMENT_CENTER
+	stats.add_theme_constant_override("separation", 12)
+	stats.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(stats)
+	stats.add_child(_stat_chip("答對", str(int(data.get("correct", 0))), UiKit.JADE))
+	stats.add_child(_stat_chip("題數", str(int(data.get("answered", 0))), UiKit.INK))
+	stats.add_child(_stat_chip("撞毀", str(int(data.get("wrong", 0))), UiKit.BLOOD))
+	stats.add_child(_stat_chip("閃避", str(int(data.get("dodged", 0))), UiKit.INK_DIM))
+
+	var weak: Array = data.get("weakest", [])
+	var bits: Array = []
+	for kana in weak:
+		bits.append(Curriculum.s(kana))
+	var diag_text := "學習診斷　再跑一局就會累積出需要複習的假名。" if bits.is_empty() \
+		else "學習診斷　這一局值得再看一眼：" + "　".join(bits)
+	var diag := UiKit.label(diag_text, 15, UiKit.INK_DIM)
+	diag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	diag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	diag.custom_minimum_size = Vector2(640, 0)
+	diag.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(diag)
 
 	_show(Page.RESULTS)
 

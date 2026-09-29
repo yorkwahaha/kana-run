@@ -88,7 +88,7 @@ def keepalive_block(audio: list[tuple[str, str]], fonts: list[tuple[str, str]]) 
 
 def collect() -> dict[str, list[tuple[str, str]]]:
     """回傳各資料夾的 (顯示名稱, res:// 路徑) 清單。"""
-    out: dict[str, list[tuple[str, str]]] = {"music": [], "sfx": [], "kana": []}
+    out: dict[str, list[tuple[str, str]]] = {"music": [], "sfx": [], "kana": [], "words": []}
     for sub in out:
         d = ROOT / "audio" / sub
         if not d.is_dir():
@@ -107,6 +107,26 @@ def collect() -> dict[str, list[tuple[str, str]]]:
     return out
 
 
+def word_ident(name: str) -> str:
+    """平假名檔名沒有合法的識別字，改用碼位，避免全部變成底線後撞名。"""
+    parts: list[str] = []
+    for ch in name:
+        if ch.isascii() and (ch.isalnum() or ch == "_"):
+            parts.append(ch)
+        else:
+            parts.append(f"u{ord(ch):04X}")
+    body = "".join(parts)
+    if not body or body[0].isdigit():
+        body = "n" + body
+    return body
+
+
+def const_name(sub: str, name: str) -> str:
+    if sub == "words":
+        return "A_WORD_" + word_ident(name).upper()
+    return "A_" + ident(sub + "_" + name).upper()
+
+
 def ident(name: str) -> str:
     """把檔名轉成合法的 GDScript 識別字元。
 
@@ -118,8 +138,8 @@ def ident(name: str) -> str:
 def keepalive_block(groups: dict[str, list[tuple[str, str]]]) -> str:
     """產生 KEEPALIVE 陣列，把每個 preload 都收進去。"""
     names: list[str] = []
-    for sub in ("music", "sfx", "kana"):
-        names += [f"A_{ident(sub + '_' + n).upper()}" for n, _ in groups[sub]]
+    for sub in ("music", "sfx", "kana", "words"):
+        names += [const_name(sub, n) for n, _ in groups[sub]]
     names += [f"F_{ident(n).upper()}" for n, _ in groups["fonts"]]
     lines = ["const KEEPALIVE: Array = [\n"]
     for n in names:
@@ -142,11 +162,9 @@ def main() -> int:
     parts = [HEADER]
 
     parts.append("## ── 音訊 ──\n")
-    for sub in ("music", "sfx", "kana"):
+    for sub in ("music", "sfx", "kana", "words"):
         for name, path in groups[sub]:
-            parts.append(
-                f'const A_{ident(sub + "_" + name).upper()} := preload("{path}")\n'
-            )
+            parts.append(f'const {const_name(sub, name)} := preload("{path}")\n')
     parts.append("\n## ── 字型 ──\n")
     for name, path in groups["fonts"]:
         parts.append(f'const F_{ident(name).upper()} := preload("{path}")\n')
@@ -155,17 +173,18 @@ def main() -> int:
         "\n## ── 分組清單 ──\n"
         "## Sfx 與 Curriculum 讀這三個清單，取代 DirAccess 目錄掃描。\n"
     )
-    for sub in ("music", "sfx", "kana"):
+    for sub in ("music", "sfx", "kana", "words"):
         parts.append("\n" + list_block(groups, sub))
 
     parts.append("\n## 必須被 sfx.gd 讀取，否則資源分析器會丟棄以上所有相依關係。\n")
     parts.append(keepalive_block(groups))
 
     OUT.write_text("".join(parts), encoding="utf-8")
-    total = sum(len(groups[s]) for s in ("music", "sfx", "kana"))
+    total = sum(len(groups[s]) for s in ("music", "sfx", "kana", "words"))
     print(f"[manifest] 寫入 {OUT.relative_to(ROOT)}")
     print(f"[manifest] music={len(groups['music'])} sfx={len(groups['sfx'])} "
-          f"kana={len(groups['kana'])} fonts={len(groups['fonts'])} (音訊共 {total})")
+          f"kana={len(groups['kana'])} words={len(groups['words'])} "
+          f"fonts={len(groups['fonts'])} (音訊共 {total})")
     return 0
 
 

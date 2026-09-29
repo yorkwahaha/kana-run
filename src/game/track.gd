@@ -14,8 +14,8 @@ const DASH_SPAN := 7.5
 const DASH_COUNT := 20
 const LANTERN_SPAN := 16.0
 const LANTERN_COUNT := 8
-const GATE_SPAN := 78.0
-const GATE_COUNT := 4
+const GATE_SPAN := 46.0
+const GATE_COUNT := 5
 const SPEEDLINE_COUNT := 90
 const RECYCLE_Z := 26.0
 
@@ -45,6 +45,7 @@ func _ready() -> void:
 	_build_dashes()
 	_build_lanterns()
 	_build_gates()
+	_build_shrine()
 	_build_shoulders()
 	_build_speed_lines()
 	_build_ambient()
@@ -158,9 +159,9 @@ func _build_gates() -> void:
 
 func _make_gate() -> Node3D:
 	var root := Node3D.new()
-	var wood := SceneKit.flat_material(Color(0.155, 0.032, 0.046))
-	var wood_dark := SceneKit.flat_material(Color(0.075, 0.020, 0.030))
-	var edge := SceneKit.glow_material(Color(1.0, 0.40, 0.34), 1.1)
+	var wood := SceneKit.flat_material(Color(0.86, 0.16, 0.11))
+	var wood_dark := SceneKit.flat_material(Color(0.48, 0.07, 0.06))
+	var edge := SceneKit.glow_material(Color(1.0, 0.62, 0.28), 1.4)
 
 	var half := ROAD_WIDTH * 0.5 + 0.85
 	var post_h := 7.2
@@ -198,6 +199,13 @@ func _make_gate() -> Node3D:
 	glow.position = Vector3(0, post_h - 0.32, 0.43)
 	root.add_child(glow)
 
+	# 笠木：黑色頂蓋把剪影收成鳥居，夜色裡才不會看成兩根柱子
+	var kasagi := MeshInstance3D.new()
+	kasagi.mesh = SceneKit.chamfer_box(Vector3(half * 2.0 + 3.6, 0.26, 0.98), 0.05)
+	kasagi.material_override = SceneKit.flat_material(Color(0.08, 0.035, 0.03))
+	kasagi.position = Vector3(0, post_h + 0.08, 0)
+	root.add_child(kasagi)
+
 	# 垂簾
 	var rope := MeshInstance3D.new()
 	rope.mesh = SceneKit.chamfer_box(Vector3(0.12, 1.7, 0.12), 0.03)
@@ -205,6 +213,71 @@ func _make_gate() -> Node3D:
 	rope.position = Vector3(0, post_h - 1.9, 0)
 	root.add_child(rope)
 	return root
+
+
+## 路的盡頭固定一座神社。它不跟著路面回收，所以整段路都是在朝它跑。
+func _build_shrine() -> void:
+	var root := Node3D.new()
+	root.position = Vector3(0, 0, -96)
+	root.scale = Vector3.ONE * 1.35
+	add_child(root)
+
+	var vermilion := SceneKit.flat_material(Color(0.86, 0.16, 0.11))
+	var ink := SceneKit.flat_material(Color(0.07, 0.045, 0.06))
+	var plaster := SceneKit.flat_material(Color(0.90, 0.88, 0.82))
+	var stone := SceneKit.flat_material(Color(0.24, 0.22, 0.28))
+	var gold := SceneKit.flat_material(Color(0.93, 0.74, 0.28))
+
+	for i in 3:
+		var step := MeshInstance3D.new()
+		step.mesh = SceneKit.chamfer_box(Vector3(11.0 - i * 1.5, 0.28, 2.4), 0.04)
+		step.material_override = stone
+		step.position = Vector3(0, 0.14 + i * 0.28, 4.6 - i * 1.6)
+		root.add_child(step)
+
+	var hall := MeshInstance3D.new()
+	hall.mesh = SceneKit.chamfer_box(Vector3(8.6, 4.4, 5.8), 0.08)
+	hall.material_override = plaster
+	hall.position = Vector3(0, 0.84 + 2.2, -1.4)
+	root.add_child(hall)
+
+	for x in [-3.7, 3.7]:
+		for z in [1.3, -3.6]:
+			var pillar := MeshInstance3D.new()
+			pillar.mesh = SceneKit.chamfer_box(Vector3(0.46, 5.6, 0.46), 0.04)
+			pillar.material_override = vermilion
+			pillar.position = Vector3(x, 0.84 + 2.8, z)
+			root.add_child(pillar)
+
+	var roof := MeshInstance3D.new()
+	roof.mesh = SceneKit.chamfer_box(Vector3(12.8, 0.55, 8.6), 0.1)
+	roof.material_override = ink
+	roof.position = Vector3(0, 6.7, -1.2)
+	root.add_child(roof)
+
+	for side in [-1.0, 1.0]:
+		var eave := MeshInstance3D.new()
+		eave.mesh = SceneKit.chamfer_box(Vector3(1.5, 0.72, 8.8), 0.08)
+		eave.material_override = ink
+		eave.position = Vector3(side * 6.6, 7.25, -1.2)
+		eave.rotation.z = side * -0.38
+		root.add_child(eave)
+
+	var ridge := MeshInstance3D.new()
+	ridge.mesh = SceneKit.chamfer_box(Vector3(0.38, 0.5, 7.4), 0.04)
+	ridge.material_override = gold
+	ridge.position = Vector3(0, 7.2, -1.2)
+	root.add_child(ridge)
+
+	var gate := _make_gate()
+	gate.position = Vector3(0, 0, 7.2)
+	gate.scale = Vector3(0.62, 0.78, 0.62)
+	root.add_child(gate)
+
+	for side in [-1, 1]:
+		var lantern := SceneKit.make_lantern()
+		lantern.position = Vector3(side * 6.4, 0.2, 5.4)
+		root.add_child(lantern)
 
 
 # ── 路面外的碎裂石板 ──────────────────────────────────────────────────────

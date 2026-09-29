@@ -140,6 +140,100 @@ const A_KANA_ZA := preload("res://audio/kana/za.mp3")
 const A_KANA_ZE := preload("res://audio/kana/ze.mp3")
 const A_KANA_ZO := preload("res://audio/kana/zo.mp3")
 const A_KANA_ZU := preload("res://audio/kana/zu.mp3")
+const A_WORD_U3042U3081 := preload("res://audio/words/あめ.mp3")
+const A_WORD_U3044 := preload("res://audio/words/い.mp3")
+const A_WORD_U3046U3061U3085U3046 := preload("res://audio/words/うちゅう.mp3")
+const A_WORD_U3048 := preload("res://audio/words/え.mp3")
+const A_WORD_U304AU3068 := preload("res://audio/words/おと.mp3")
+const A_WORD_U304BU304CU307F := preload("res://audio/words/かがみ.mp3")
+const A_WORD_U304BU3055 := preload("res://audio/words/かさ.mp3")
+const A_WORD_U304BU305A := preload("res://audio/words/かず.mp3")
+const A_WORD_U304D := preload("res://audio/words/き.mp3")
+const A_WORD_U304DU3083U304F := preload("res://audio/words/きゃく.mp3")
+const A_WORD_U304DU3087U3046U3046 := preload("res://audio/words/きょうう.mp3")
+const A_WORD_U304DU3087U3046U3057U3064 := preload("res://audio/words/きょうしつ.mp3")
+const A_WORD_U304EU3085U3046 := preload("res://audio/words/ぎゅう.mp3")
+const A_WORD_U304EU3087U3046 := preload("res://audio/words/ぎょう.mp3")
+const A_WORD_U304FU3064 := preload("res://audio/words/くつ.mp3")
+const A_WORD_U3051 := preload("res://audio/words/け.mp3")
+const A_WORD_U3051U3044U3057U304D := preload("res://audio/words/けいしき.mp3")
+const A_WORD_U3052U3093U304DU3093 := preload("res://audio/words/げんきん.mp3")
+const A_WORD_U3053U3048 := preload("res://audio/words/こえ.mp3")
+const A_WORD_U3054U3054 := preload("res://audio/words/ごご.mp3")
+const A_WORD_U3055 := preload("res://audio/words/さ.mp3")
+const A_WORD_U3056 := preload("res://audio/words/ざ.mp3")
+const A_WORD_U3057 := preload("res://audio/words/し.mp3")
+const A_WORD_U3057U3083 := preload("res://audio/words/しゃ.mp3")
+const A_WORD_U3057U3085 := preload("res://audio/words/しゅ.mp3")
+const A_WORD_U3057U3087 := preload("res://audio/words/しょ.mp3")
+const A_WORD_U3058U3061 := preload("res://audio/words/じち.mp3")
+const A_WORD_U3058U3083 := preload("res://audio/words/じゃ.mp3")
+const A_WORD_U3058U3085 := preload("res://audio/words/じゅ.mp3")
+const A_WORD_U3058U3087U305BU3044 := preload("res://audio/words/じょせい.mp3")
+const A_WORD_U3059 := preload("res://audio/words/す.mp3")
+const A_WORD_U305B := preload("res://audio/words/せ.mp3")
+const A_WORD_U305BU3068 := preload("res://audio/words/せと.mp3")
+const A_WORD_U305CU3093U3076 := preload("res://audio/words/ぜんぶ.mp3")
+const A_WORD_U305DU3057U304D := preload("res://audio/words/そしき.mp3")
+const A_WORD_U305EU3046 := preload("res://audio/words/ぞう.mp3")
+const A_WORD_U3060U306A := preload("res://audio/words/だな.mp3")
+const A_WORD_U3060U3093U3089U304F := preload("res://audio/words/だんらく.mp3")
+const A_WORD_U3061 := preload("res://audio/words/ち.mp3")
+const A_WORD_U3061U305A := preload("res://audio/words/ちず.mp3")
+const A_WORD_U3061U3083 := preload("res://audio/words/ちゃ.mp3")
+const A_WORD_U3061U3085U3046U3057U3083 := preload("res://audio/words/ちゅうしゃ.mp3")
+const A_WORD_U3061U3087U3055U304F := preload("res://audio/words/ちょさく.mp3")
+const A_WORD_U3064U3065U304F := preload("res://audio/words/つづく.mp3")
+const A_WORD_U3064U3076 := preload("res://audio/words/つぶ.mp3")
+const A_WORD_U3066 := preload("res://audio/words/て.mp3")
+const A_WORD_U3066U3089 := preload("res://audio/words/てら.mp3")
+const A_WORD_U3067U3042U3044 := preload("res://audio/words/であい.mp3")
+const A_WORD_U3068 := preload("res://audio/words/と.mp3")
+const A_WORD_U3068U308A := preload("res://audio/words/とり.mp3")
+const A_WORD_U3069U3046 := preload("res://audio/words/どう.mp3")
+const A_WORD_U3069U3046U3050 := preload("res://audio/words/どうぐ.mp3")
+const A_WORD_U306AU3048 := preload("res://audio/words/なえ.mp3")
+const A_WORD_U306B := preload("res://audio/words/に.mp3")
+const A_WORD_U306BU308B := preload("res://audio/words/にる.mp3")
+const A_WORD_U306CU306E := preload("res://audio/words/ぬの.mp3")
+const A_WORD_U306DU3053 := preload("res://audio/words/ねこ.mp3")
+const A_WORD_U306EU306FU3089 := preload("res://audio/words/のはら.mp3")
+const A_WORD_U306FU306A := preload("res://audio/words/はな.mp3")
+const A_WORD_U3070U3057U3087 := preload("res://audio/words/ばしょ.mp3")
+const A_WORD_U3071U3093 := preload("res://audio/words/ぱん.mp3")
+const A_WORD_U3072 := preload("res://audio/words/ひ.mp3")
+const A_WORD_U3072U3083U304F := preload("res://audio/words/ひゃく.mp3")
+const A_WORD_U3072U3087U3046 := preload("res://audio/words/ひょう.mp3")
+const A_WORD_U3073U3058U3093 := preload("res://audio/words/びじん.mp3")
+const A_WORD_U3073U3085 := preload("res://audio/words/びゅ.mp3")
+const A_WORD_U3073U30FCU308B := preload("res://audio/words/びーる.mp3")
+const A_WORD_U3075U306D := preload("res://audio/words/ふね.mp3")
+const A_WORD_U3076 := preload("res://audio/words/ぶ.mp3")
+const A_WORD_U3077U30FCU308B := preload("res://audio/words/ぷーる.mp3")
+const A_WORD_U3078U3044U304D := preload("res://audio/words/へいき.mp3")
+const A_WORD_U3078U3073 := preload("res://audio/words/へび.mp3")
+const A_WORD_U307AU30FCU3058 := preload("res://audio/words/ぺーじ.mp3")
+const A_WORD_U307BU3057 := preload("res://audio/words/ほし.mp3")
+const A_WORD_U307BU3093 := preload("res://audio/words/ほん.mp3")
+const A_WORD_U307CU304F := preload("res://audio/words/ぼく.mp3")
+const A_WORD_U307DU3059U3068 := preload("res://audio/words/ぽすと.mp3")
+const A_WORD_U307EU3064 := preload("res://audio/words/まつ.mp3")
+const A_WORD_U307F := preload("res://audio/words/み.mp3")
+const A_WORD_U307FU305A := preload("res://audio/words/みず.mp3")
+const A_WORD_U307FU3087U3046 := preload("res://audio/words/みょう.mp3")
+const A_WORD_U3080U3057 := preload("res://audio/words/むし.mp3")
+const A_WORD_U3081 := preload("res://audio/words/め.mp3")
+const A_WORD_U3082U3082 := preload("res://audio/words/もも.mp3")
+const A_WORD_U3084U307E := preload("res://audio/words/やま.mp3")
+const A_WORD_U3086U304D := preload("res://audio/words/ゆき.mp3")
+const A_WORD_U3088U308B := preload("res://audio/words/よる.mp3")
+const A_WORD_U308A := preload("res://audio/words/り.mp3")
+const A_WORD_U308AU3085U3046U304CU304F := preload("res://audio/words/りゅうがく.mp3")
+const A_WORD_U308AU3086U3046 := preload("res://audio/words/りゆう.mp3")
+const A_WORD_U308AU3087U3053U3046 := preload("res://audio/words/りょこう.mp3")
+const A_WORD_U308CU3044 := preload("res://audio/words/れい.mp3")
+const A_WORD_U308D := preload("res://audio/words/ろ.mp3")
+const A_WORD_U308FU305F := preload("res://audio/words/わた.mp3")
 
 ## ── 字型 ──
 const F_BOLD := preload("res://assets/fonts/bold.ttf")
@@ -270,6 +364,103 @@ const KANA: Array = [
 	{"name": "zu", "path": "res://audio/kana/zu.mp3"},
 ]
 
+const WORDS: Array = [
+	{"name": "あめ", "path": "res://audio/words/あめ.mp3"},
+	{"name": "い", "path": "res://audio/words/い.mp3"},
+	{"name": "うちゅう", "path": "res://audio/words/うちゅう.mp3"},
+	{"name": "え", "path": "res://audio/words/え.mp3"},
+	{"name": "おと", "path": "res://audio/words/おと.mp3"},
+	{"name": "かがみ", "path": "res://audio/words/かがみ.mp3"},
+	{"name": "かさ", "path": "res://audio/words/かさ.mp3"},
+	{"name": "かず", "path": "res://audio/words/かず.mp3"},
+	{"name": "き", "path": "res://audio/words/き.mp3"},
+	{"name": "きゃく", "path": "res://audio/words/きゃく.mp3"},
+	{"name": "きょうう", "path": "res://audio/words/きょうう.mp3"},
+	{"name": "きょうしつ", "path": "res://audio/words/きょうしつ.mp3"},
+	{"name": "ぎゅう", "path": "res://audio/words/ぎゅう.mp3"},
+	{"name": "ぎょう", "path": "res://audio/words/ぎょう.mp3"},
+	{"name": "くつ", "path": "res://audio/words/くつ.mp3"},
+	{"name": "け", "path": "res://audio/words/け.mp3"},
+	{"name": "けいしき", "path": "res://audio/words/けいしき.mp3"},
+	{"name": "げんきん", "path": "res://audio/words/げんきん.mp3"},
+	{"name": "こえ", "path": "res://audio/words/こえ.mp3"},
+	{"name": "ごご", "path": "res://audio/words/ごご.mp3"},
+	{"name": "さ", "path": "res://audio/words/さ.mp3"},
+	{"name": "ざ", "path": "res://audio/words/ざ.mp3"},
+	{"name": "し", "path": "res://audio/words/し.mp3"},
+	{"name": "しゃ", "path": "res://audio/words/しゃ.mp3"},
+	{"name": "しゅ", "path": "res://audio/words/しゅ.mp3"},
+	{"name": "しょ", "path": "res://audio/words/しょ.mp3"},
+	{"name": "じち", "path": "res://audio/words/じち.mp3"},
+	{"name": "じゃ", "path": "res://audio/words/じゃ.mp3"},
+	{"name": "じゅ", "path": "res://audio/words/じゅ.mp3"},
+	{"name": "じょせい", "path": "res://audio/words/じょせい.mp3"},
+	{"name": "す", "path": "res://audio/words/す.mp3"},
+	{"name": "せ", "path": "res://audio/words/せ.mp3"},
+	{"name": "せと", "path": "res://audio/words/せと.mp3"},
+	{"name": "ぜんぶ", "path": "res://audio/words/ぜんぶ.mp3"},
+	{"name": "そしき", "path": "res://audio/words/そしき.mp3"},
+	{"name": "ぞう", "path": "res://audio/words/ぞう.mp3"},
+	{"name": "だな", "path": "res://audio/words/だな.mp3"},
+	{"name": "だんらく", "path": "res://audio/words/だんらく.mp3"},
+	{"name": "ち", "path": "res://audio/words/ち.mp3"},
+	{"name": "ちず", "path": "res://audio/words/ちず.mp3"},
+	{"name": "ちゃ", "path": "res://audio/words/ちゃ.mp3"},
+	{"name": "ちゅうしゃ", "path": "res://audio/words/ちゅうしゃ.mp3"},
+	{"name": "ちょさく", "path": "res://audio/words/ちょさく.mp3"},
+	{"name": "つづく", "path": "res://audio/words/つづく.mp3"},
+	{"name": "つぶ", "path": "res://audio/words/つぶ.mp3"},
+	{"name": "て", "path": "res://audio/words/て.mp3"},
+	{"name": "てら", "path": "res://audio/words/てら.mp3"},
+	{"name": "であい", "path": "res://audio/words/であい.mp3"},
+	{"name": "と", "path": "res://audio/words/と.mp3"},
+	{"name": "とり", "path": "res://audio/words/とり.mp3"},
+	{"name": "どう", "path": "res://audio/words/どう.mp3"},
+	{"name": "どうぐ", "path": "res://audio/words/どうぐ.mp3"},
+	{"name": "なえ", "path": "res://audio/words/なえ.mp3"},
+	{"name": "に", "path": "res://audio/words/に.mp3"},
+	{"name": "にる", "path": "res://audio/words/にる.mp3"},
+	{"name": "ぬの", "path": "res://audio/words/ぬの.mp3"},
+	{"name": "ねこ", "path": "res://audio/words/ねこ.mp3"},
+	{"name": "のはら", "path": "res://audio/words/のはら.mp3"},
+	{"name": "はな", "path": "res://audio/words/はな.mp3"},
+	{"name": "ばしょ", "path": "res://audio/words/ばしょ.mp3"},
+	{"name": "ぱん", "path": "res://audio/words/ぱん.mp3"},
+	{"name": "ひ", "path": "res://audio/words/ひ.mp3"},
+	{"name": "ひゃく", "path": "res://audio/words/ひゃく.mp3"},
+	{"name": "ひょう", "path": "res://audio/words/ひょう.mp3"},
+	{"name": "びじん", "path": "res://audio/words/びじん.mp3"},
+	{"name": "びゅ", "path": "res://audio/words/びゅ.mp3"},
+	{"name": "びーる", "path": "res://audio/words/びーる.mp3"},
+	{"name": "ふね", "path": "res://audio/words/ふね.mp3"},
+	{"name": "ぶ", "path": "res://audio/words/ぶ.mp3"},
+	{"name": "ぷーる", "path": "res://audio/words/ぷーる.mp3"},
+	{"name": "へいき", "path": "res://audio/words/へいき.mp3"},
+	{"name": "へび", "path": "res://audio/words/へび.mp3"},
+	{"name": "ぺーじ", "path": "res://audio/words/ぺーじ.mp3"},
+	{"name": "ほし", "path": "res://audio/words/ほし.mp3"},
+	{"name": "ほん", "path": "res://audio/words/ほん.mp3"},
+	{"name": "ぼく", "path": "res://audio/words/ぼく.mp3"},
+	{"name": "ぽすと", "path": "res://audio/words/ぽすと.mp3"},
+	{"name": "まつ", "path": "res://audio/words/まつ.mp3"},
+	{"name": "み", "path": "res://audio/words/み.mp3"},
+	{"name": "みず", "path": "res://audio/words/みず.mp3"},
+	{"name": "みょう", "path": "res://audio/words/みょう.mp3"},
+	{"name": "むし", "path": "res://audio/words/むし.mp3"},
+	{"name": "め", "path": "res://audio/words/め.mp3"},
+	{"name": "もも", "path": "res://audio/words/もも.mp3"},
+	{"name": "やま", "path": "res://audio/words/やま.mp3"},
+	{"name": "ゆき", "path": "res://audio/words/ゆき.mp3"},
+	{"name": "よる", "path": "res://audio/words/よる.mp3"},
+	{"name": "り", "path": "res://audio/words/り.mp3"},
+	{"name": "りゅうがく", "path": "res://audio/words/りゅうがく.mp3"},
+	{"name": "りゆう", "path": "res://audio/words/りゆう.mp3"},
+	{"name": "りょこう", "path": "res://audio/words/りょこう.mp3"},
+	{"name": "れい", "path": "res://audio/words/れい.mp3"},
+	{"name": "ろ", "path": "res://audio/words/ろ.mp3"},
+	{"name": "わた", "path": "res://audio/words/わた.mp3"},
+]
+
 ## 必須被 sfx.gd 讀取，否則資源分析器會丟棄以上所有相依關係。
 const KEEPALIVE: Array = [
 	A_MUSIC_DASH,
@@ -384,6 +575,100 @@ const KEEPALIVE: Array = [
 	A_KANA_ZE,
 	A_KANA_ZO,
 	A_KANA_ZU,
+	A_WORD_U3042U3081,
+	A_WORD_U3044,
+	A_WORD_U3046U3061U3085U3046,
+	A_WORD_U3048,
+	A_WORD_U304AU3068,
+	A_WORD_U304BU304CU307F,
+	A_WORD_U304BU3055,
+	A_WORD_U304BU305A,
+	A_WORD_U304D,
+	A_WORD_U304DU3083U304F,
+	A_WORD_U304DU3087U3046U3046,
+	A_WORD_U304DU3087U3046U3057U3064,
+	A_WORD_U304EU3085U3046,
+	A_WORD_U304EU3087U3046,
+	A_WORD_U304FU3064,
+	A_WORD_U3051,
+	A_WORD_U3051U3044U3057U304D,
+	A_WORD_U3052U3093U304DU3093,
+	A_WORD_U3053U3048,
+	A_WORD_U3054U3054,
+	A_WORD_U3055,
+	A_WORD_U3056,
+	A_WORD_U3057,
+	A_WORD_U3057U3083,
+	A_WORD_U3057U3085,
+	A_WORD_U3057U3087,
+	A_WORD_U3058U3061,
+	A_WORD_U3058U3083,
+	A_WORD_U3058U3085,
+	A_WORD_U3058U3087U305BU3044,
+	A_WORD_U3059,
+	A_WORD_U305B,
+	A_WORD_U305BU3068,
+	A_WORD_U305CU3093U3076,
+	A_WORD_U305DU3057U304D,
+	A_WORD_U305EU3046,
+	A_WORD_U3060U306A,
+	A_WORD_U3060U3093U3089U304F,
+	A_WORD_U3061,
+	A_WORD_U3061U305A,
+	A_WORD_U3061U3083,
+	A_WORD_U3061U3085U3046U3057U3083,
+	A_WORD_U3061U3087U3055U304F,
+	A_WORD_U3064U3065U304F,
+	A_WORD_U3064U3076,
+	A_WORD_U3066,
+	A_WORD_U3066U3089,
+	A_WORD_U3067U3042U3044,
+	A_WORD_U3068,
+	A_WORD_U3068U308A,
+	A_WORD_U3069U3046,
+	A_WORD_U3069U3046U3050,
+	A_WORD_U306AU3048,
+	A_WORD_U306B,
+	A_WORD_U306BU308B,
+	A_WORD_U306CU306E,
+	A_WORD_U306DU3053,
+	A_WORD_U306EU306FU3089,
+	A_WORD_U306FU306A,
+	A_WORD_U3070U3057U3087,
+	A_WORD_U3071U3093,
+	A_WORD_U3072,
+	A_WORD_U3072U3083U304F,
+	A_WORD_U3072U3087U3046,
+	A_WORD_U3073U3058U3093,
+	A_WORD_U3073U3085,
+	A_WORD_U3073U30FCU308B,
+	A_WORD_U3075U306D,
+	A_WORD_U3076,
+	A_WORD_U3077U30FCU308B,
+	A_WORD_U3078U3044U304D,
+	A_WORD_U3078U3073,
+	A_WORD_U307AU30FCU3058,
+	A_WORD_U307BU3057,
+	A_WORD_U307BU3093,
+	A_WORD_U307CU304F,
+	A_WORD_U307DU3059U3068,
+	A_WORD_U307EU3064,
+	A_WORD_U307F,
+	A_WORD_U307FU305A,
+	A_WORD_U307FU3087U3046,
+	A_WORD_U3080U3057,
+	A_WORD_U3081,
+	A_WORD_U3082U3082,
+	A_WORD_U3084U307E,
+	A_WORD_U3086U304D,
+	A_WORD_U3088U308B,
+	A_WORD_U308A,
+	A_WORD_U308AU3085U3046U304CU304F,
+	A_WORD_U308AU3086U3046,
+	A_WORD_U308AU3087U3053U3046,
+	A_WORD_U308CU3044,
+	A_WORD_U308D,
+	A_WORD_U308FU305F,
 	F_BOLD,
 	F_DISPLAY,
 	F_UI,

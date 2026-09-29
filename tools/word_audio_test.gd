@@ -59,12 +59,13 @@ func _run() -> void:
 		full += 1
 		_ok(clip.begins_with(words_dir), "%s 的整詞錄音在 %s 底下" % [kana, words_dir])
 		var q: Dictionary = C.make_question(kana, 0.5, 1)
+		# 讀音裡沒有這個假名時，題目會改成看羅馬字，本來就沒有單字音檔
+		if int(q.get("type", -1)) != 1:
+			continue
 		var audio: Array = q.get("word_audio", [])
 		if audio.size() != 1 or not str(audio[0]).begins_with(words_dir):
 			mixed.append("%s(%s)" % [kana, str(audio)])
-	print("    整詞錄音 %d 個，其餘走逐音" % full)
-	if full == 0:
-		print("    （尚未放入任何整詞錄音，逐音 fallback 生效中）")
+	print("    整詞錄音 %d 個" % full)
 	_ok(mixed.is_empty(), "有整詞錄音時不混入逐音（混用：%s）" % str(mixed))
 
 	print("[word-audio] word_file 邊界")
@@ -82,12 +83,13 @@ func _run() -> void:
 		if int(q.get("type", -1)) != 1:
 			continue
 		blank_q += 1
-		if (q.get("word_audio", []) as Array).size() > 0:
+		var audio: Array = q.get("word_audio", [])
+		if audio.size() == 1 and str(audio[0]).begins_with(words_dir):
 			with_audio += 1
 		else:
-			missing.append(kana)
-	print("    單字題 %d 題，有音檔 %d 題" % [blank_q, with_audio])
-	_ok(missing.is_empty(), "每個單字題都有音檔（缺：%s）" % str(missing))
+			missing.append("%s:%s" % [kana, str(audio)])
+	print("    單字題 %d 題，整詞錄音 %d 題" % [blank_q, with_audio])
+	_ok(missing.is_empty(), "每個單字題都只播一段整詞錄音（缺：%s）" % str(missing))
 
 	print("[word-audio] 失敗 %d 項" % _fails.size())
 	quit(0 if _fails.is_empty() else 1)

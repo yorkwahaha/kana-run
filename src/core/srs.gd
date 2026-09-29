@@ -11,6 +11,8 @@ const DAY := 86400.0
 const WEAK_THRESHOLD := 0.72      ## 低於此正確率視為弱項
 const SLOW_MULTIPLIER := 1.6      ## 反應時間的加權倍率
 const DUE_HALFLIFE := 6.0         ## 天數遺忘曲線半衰期
+const RUN_BEATS := 42             ## 一輪的題數。三到四分鐘，打完就結束
+const NEW_PER_RUN := 8            ## 老玩家一輪裡最多塞幾個還沒見過的音
 
 var session_correct := 0
 var session_wrong := 0
@@ -49,25 +51,49 @@ func build_queue(kinds: Array) -> Array:
 			else:
 				_review_pool.append(kana)
 
-	# 新音照圖表順序
-	for kana in _new_pool:
-		_queue.append(kana)
-
-	# 複習音：指數加權抽樣，讓最急的假名更常出現
-	while not _review_pool.is_empty():
-		var weights: Array = []
-		var total := 0.0
-		for k in _review_pool:
-			total += exp(_urgency(k) * 0.55)
-			weights.append(total)
-		var roll := randf() * total
-		var idx := 0
-		while idx < weights.size() - 1 and roll > weights[idx]:
-			idx += 1
-		_queue.append(_review_pool[idx])
-		_review_pool.remove_at(idx)
-
+	_assemble_run()
 	return _queue.duplicate()
+
+
+## 一輪固定長度，不把整本五十音一次跑完。
+## 全是新音時照圖表順序取，單元太短就再繞一圈。
+## 已經有複習池時，先放幾個新音，剩下用弱項加權抽，避免同一音連著出現。
+func _assemble_run() -> void:
+	_queue = []
+	if _review_pool.is_empty():
+		if _new_pool.is_empty():
+			return
+		var i := 0
+		while _queue.size() < RUN_BEATS:
+			_queue.append(_new_pool[i % _new_pool.size()])
+			i += 1
+		return
+	var fresh := mini(NEW_PER_RUN, _new_pool.size())
+	for i in fresh:
+		_queue.append(_new_pool[i])
+	var guard := 0
+	while _queue.size() < RUN_BEATS and guard < RUN_BEATS * 4:
+		guard += 1
+		var prev := "" if _queue.is_empty() else str(_queue[_queue.size() - 1])
+		_queue.append(_pick_review(prev))
+
+
+func _pick_review(avoid: String) -> String:
+	if _review_pool.size() == 1:
+		return str(_review_pool[0])
+	var total := 0.0
+	var weights: Array = []
+	for k in _review_pool:
+		var w := exp(_urgency(str(k)) * 0.55)
+		if str(k) == avoid:
+			w *= 0.08
+		total += w
+		weights.append(total)
+	var roll := randf() * maxf(total, 0.0001)
+	var idx := 0
+	while idx < weights.size() - 1 and roll > float(weights[idx]):
+		idx += 1
+	return str(_review_pool[idx])
 
 
 func done() -> int:

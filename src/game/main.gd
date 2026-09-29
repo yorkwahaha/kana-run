@@ -24,16 +24,10 @@ const DODGE_WINDOW := 0.52
 const OBSTACLE_EVERY := 5       ## 每幾題插入一個橫桿障礙
 
 # ── 極限（OVERDRIVE）─────────────────────────────────────────────────────
-## 連段門檻。答到這裡就進入極限：石碑只亮很短時間，分數 ×3，體力掉更快。
-##
-## 為什麼要有這個狀態：一局 46 題原本是「一路加速的斜坡」，
-## 跑到最後和跑到第 20 題的差別只是數字比較大，沒有「進入了某個階段」的轉折，
-## 跑完也就跑完了，沒有讓人想再來一次的峰值。
-##
-## 極限必須是玩家自己「賺」來的（連段），不能隨機發放 ——
-## 這樣失敗時的刺痛感是「我貪了倍率」，而不是「題目突然變難」。
-## 這正是發洩感的來源：輸得下去，才想再試。
-const OVERDRIVE_CHAIN := 30
+## 熱度灌滿就爆開約七秒：分數 ×3、速度墊高、體力掉更快，時間到自己結束。
+## 答錯會把還沒爆開的熱度清掉；已經在跑的那一波會自己走完。
+const OVERDRIVE_NEED := 8.0       ## 累積這麼多「熱度」就爆開一波極限
+const OVERDRIVE_TIME := 7.0       ## 極限持續秒數，期間體力掉得更快
 const OVERDRIVE_MULT := 3.0
 ## 極限下石碑的閱讀時間倍率。越小 = 必須更早認出來，壓力越大。
 const OVERDRIVE_LEGIBLE := 0.55
@@ -134,6 +128,7 @@ var _chain := 0
 var _best_chain := 0
 var _overdrive := false
 var _overdrive_t := 0.0
+var _od_charge := 0.0
 var _resolved := 0
 var _speed := SPEED_MIN
 var _shake_user := 1.0
@@ -507,11 +502,19 @@ func _start_bgm() -> void:
 
 
 func _on_start(kinds: Array) -> void:
-	if kinds.is_empty():
-		_ui.show_brief()
-		return
-	unit_kinds = kinds.duplicate()
+	unit_kinds = kinds.duplicate() if not kinds.is_empty() else _tonight_kinds()
 	_start_run()
+
+
+## 標題上的「開始」不先選關。
+## 還沒走出清音就只跑清音；已經碰過後面的音，就混進濁音和拗音。
+## 具體抽哪些字由 SRS 決定，一輪長度固定。
+func _tonight_kinds() -> Array:
+	for kind in [KanaDB.Kind.DAKUON, KanaDB.Kind.YOON, KanaDB.Kind.KATA]:
+		for entry in KanaDB.unit(kind):
+			if int(SaveGame.kana_record(entry[0]).get("seen", 0)) > 0:
+				return [KanaDB.Kind.SEION, KanaDB.Kind.DAKUON, KanaDB.Kind.YOON]
+	return [KanaDB.Kind.SEION]
 
 
 func _on_restart() -> void:
@@ -551,10 +554,11 @@ func _start_run() -> void:
 	_best_chain = 0
 	_overdrive = false
 	_overdrive_t = 0.0
+	_od_charge = 0.0
 	_hud.set_overdrive(false)
 	if _debug_overdrive:
-		# 直接把連段灌到門檻，讓 _tick_overdrive 下一幀自然接手
-		_chain = OVERDRIVE_CHAIN
+		_chain = 12
+		_begin_overdrive()
 	_resolved = 0
 	_relics = {}
 	if _debug_relics:
@@ -635,7 +639,9 @@ func _pause() -> void:
 func _unit_label() -> String:
 	if unit_kinds.size() == 1:
 		return KanaDB.UNIT_NAMES[unit_kinds[0]]
-	return "大滿貫挑戰"
+	if unit_kinds.size() >= 4:
+		return "大滿貫"
+	return "今夜一輪"
 
 
 func _apply_theme(theme: int) -> void:
@@ -757,9 +763,12 @@ func _check_zone() -> void:
 		return
 	_zone = z
 	_apply_zone()
-	# 換區的最後一題結束後接一個衝刺關，讓張力有起伏而不是一路只加溫
-	if z > 0 and _resolved % ZONE_LEN == 0 and z < ZONES.size() - 1:
-		_start_sprint()
+	# 換區接一小段衝刺。進最後一區改成長衝刺，這一輪的結尾就在那裡。
+	if z > 0 and _resolved % ZONE_LEN == 0:
+		if z >= ZONES.size() - 1:
+			_start_sprint(9.0, "最後衝刺　得分 ×2")
+		else:
+			_start_sprint()
 
 
 ## 強制把目前區域的設定套回去。
@@ -782,11 +791,11 @@ func _apply_zone(show := true) -> void:
 		Sfx.zone_change(_zone)
 
 
-func _start_sprint() -> void:
-	_sprint = SPRINT_TIME
+func _start_sprint(duration := SPRINT_TIME, text := "衝刺！得分 ×2") -> void:
+	_sprint = duration
 	_track.set_speed01(1.0)
 	_hud.set_sprint(true)
-	_hud.banner("衝刺！得分 ×2", UiKit.GOLD, 1.0)
+	_hud.banner(text, UiKit.GOLD, 1.0)
 	_cam.punch(0.8 * _shake_user)
 	Sfx.sprint()
 
@@ -864,9 +873,7 @@ func _resolve_barrier() -> void:
 	_check_after_gap()
 
 
-## 聽力題：播放語音包裡的音檔
-## 題目的語音。
-## 聽力題是一段音；單字題則是整個單詞的讀音，一個假名一段依序播放。
+## 題目的語音。聽力題是一個假名；單字題是整詞錄音那一段。
 func _play_question_voice() -> void:
 	if _voice_player == null:
 		return
@@ -921,18 +928,16 @@ func _speed01() -> float:
 
 
 func _current_speed() -> float:
-	var p := Srs.progress()
-	var base := lerpf(SPEED_MIN, SPEED_MAX, pow(clampf(p, 0.0, 1.0), 0.75))
-	# 第四區「嵐」額外推一檔，讓終段有「終於跑滿」的感覺
+	# 速度跟這一輪打得有多熱走，不跟課表進度走。失手連段歸零，速度就落下來。
+	var heat := clampf(float(_chain) / 16.0, 0.0, 1.0)
+	var base := lerpf(SPEED_MIN, SPEED_MAX * 0.92, heat)
 	if _zone >= ZONES.size() - 1:
-		base = maxf(base, SPEED_MAX * 0.94)
+		base = maxf(base, SPEED_MAX * 0.78)
 	var v := base * (1.0 + 0.15 * _relic_count("baigeki"))
-	# 衝刺關：短暫爆發，張力與放鬆交替才不會膩
 	if _sprint > 0.0:
 		v *= SPRINT_BOOST
-	# 極限：畫面本身也要跟著興奮起來，否則「碑面在閃」但世界還是一樣慢，
-	# 那個狀態會讀不出來
 	if _overdrive:
+		v = maxf(v, SPEED_MAX * 0.72)
 		v *= OVERDRIVE_BOOST
 	return v
 
@@ -1430,29 +1435,44 @@ func _zone_twist() -> String:
 	return str(ZONES[clampi(_zone, 0, ZONES.size() - 1)]["twist"])
 
 
-## 連段夠了就進極限，斷了就掉出來。
-##
-## 掉出極限時要明確告訴玩家「是你斷的」——
-## 否則倍率憑空消失會像是 bug，而不是一個可以重新賺回來的目標。
+## 熱度累滿就爆開固定的幾秒，不是連段卡在 30 才永久加速。
+## 爆開期間體力掉得更快，撐過這段就是這一輪的高潮。
 func _tick_overdrive(delta: float) -> void:
-	var want := _chain >= OVERDRIVE_CHAIN
-	if want == _overdrive:
-		if _overdrive:
-			_overdrive_t += delta
+	if not _overdrive:
 		return
-	_overdrive = want
+	_overdrive_t += delta
+	if _overdrive_t >= OVERDRIVE_TIME:
+		_end_overdrive()
+
+
+func _note_heat(grade: String) -> void:
 	if _overdrive:
-		_overdrive_t = 0.0
-		_hud.banner("極限　×3", UiKit.GOLD, 1.6)
-		_hud.set_overdrive(true)
-		_cam.pulse(1.0)
-		_cam.punch(0.9 * _shake_user)
-		_track.flash_rails()
-		Sfx.set_intensity(1.0)
-		Sfx.hit_perfect()
-	else:
-		_hud.banner("極限結束", UiKit.INK_DIM, 0.9)
-		_hud.set_overdrive(false)
+		return
+	_od_charge += 1.6 if grade == "perfect" else 1.0
+	if _od_charge >= OVERDRIVE_NEED:
+		_begin_overdrive()
+
+
+func _begin_overdrive() -> void:
+	_overdrive = true
+	_overdrive_t = 0.0
+	_od_charge = 0.0
+	_hud.banner("極限　×3", UiKit.GOLD, 1.6)
+	_hud.set_overdrive(true)
+	_cam.pulse(1.0)
+	_cam.punch(0.9 * _shake_user)
+	_track.flash_rails()
+	Sfx.set_intensity(1.0)
+	Sfx.hit_perfect()
+
+
+func _end_overdrive() -> void:
+	if not _overdrive:
+		return
+	_overdrive = false
+	_overdrive_t = 0.0
+	_hud.banner("極限結束", UiKit.INK_DIM, 0.9)
+	_hud.set_overdrive(false)
 
 
 ## 每 10 連段做一次場面：倍率上限體感、光環、路面提示
@@ -1492,6 +1512,7 @@ func _resolve_hit(kana: String, ms: float) -> void:
 	Srs.record(kana, 1, ms)
 	_check_combo_milestone()
 	_check_zone()
+	_note_heat(grade)
 
 	_good_flash = 1.0
 	_hitstop_until_ms = Time.get_ticks_msec() + 90
@@ -1539,6 +1560,7 @@ func _resolve_miss(kana: String, ms: float) -> void:
 	else:
 		_chain = 0
 
+	_od_charge = 0.0
 	Sfx.miss()
 	_hitstop_until_ms = Time.get_ticks_msec() + 130
 	_time_scale_target = 0.30
@@ -1551,13 +1573,16 @@ func _resolve_miss(kana: String, ms: float) -> void:
 		_begin_collapse(true)
 		return
 
-	# 不另外彈橫幅 —— 會和解說卡疊在一起，兩個都看不清。
-	# 「答錯了」直接寫進解說卡的標題。
-	_hud.show_explain(Curriculum.explain_card(_question), "答錯了　正解")
+	# 正解只閃在畫面上，不開解說卡。下一題已經在來。
+	_hud.hide_explain()
+	var choices: Array = _question.get("choices", [])
+	var ti := int(_question.get("target_index", 0))
+	var shown := str(choices[ti]) if ti >= 0 and ti < choices.size() else ""
+	_hud.banner("正解　%s" % shown, Color(1.0, 0.45, 0.42), 0.55)
 
-	_after_resolve(null, 0.55)
+	_after_resolve(null, 0.40)
 	_time_scale_target = 1.0
-	_gap = 1.15
+	_gap = 0.48
 	if _hold_miss:
 		get_tree().paused = true   # 測試用：停在錯題卡上
 
@@ -1590,10 +1615,6 @@ func _after_resolve(hit: Node3D, hit_delay: float) -> void:
 func _check_after_gap() -> void:
 	if _stamina <= 0.0:
 		_begin_collapse()
-		return
-	if _resolved >= _next_relic_at and not RelicPool.roll(_relics).is_empty():
-		_next_relic_at += RELIC_EVERY
-		_open_relic()
 		return
 	if Srs.finished():
 		_finish(true)

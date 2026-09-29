@@ -263,18 +263,14 @@ func _build_word_blank(q: Dictionary, kana: String) -> void:
 	q["word_romaji"] = romaji_w
 	q["word_meaning"] = meaning
 	q["hint"] = "完整讀音：%s（%s）" % [s(reading), romaji_w]
-	# 有錄整個單詞的音檔就用它，沒有才逐音接接
+	# 單字題只播整詞。逐音接起來聽起來像三個獨立的音，而且會把答案的音拆開來唸。
 	var wf := word_file(reading)
-	q["word_audio"] = [wf] if wf != "" else _reading_audio(reading)
+	q["word_audio"] = [wf] if wf != "" else []
 	_finalize(q)
 
 
-## 詞彙讀音的專屬音檔（選用）。
-##
-## 逐個假名接起來聽起來會像三個獨立的音，不是一個詞。
-## 如果 `audio/words/<平假名讀音>.mp3` 存在（例如 りゆう.mp3），
-## 就優先播那一段真人／TTS 錄的完整單詞。
-## 沒有就退回逐音接接，兩種都能運作。
+## 詞彙的完整錄音。`audio/words/<平假名讀音>.mp3`，例如 りゆう.mp3。
+## 單字題只認這一個檔，不再把五十音音檔接成一個詞。
 const WORDS_DIR := "res://audio/words/"
 
 func word_file(reading: String) -> String:
@@ -285,23 +281,6 @@ func word_file(reading: String) -> String:
 		if ResourceLoader.exists(path):
 			return path
 	return ""
-
-
-## 把單詞讀音拆成一個個假名的音檔路徑。
-##
-## 為什麼需要：單字題會顯示挖空的單詞（靴　○つ）與釋義。
-## 不會念假名的人看到挖空根本無從選起 —— 聽得到整個單詞的讀音
-## 就能對照出該填哪一個音。
-## 注意不能只播「答案那個音」，那等於直接把答案唸給玩家聽。
-func _reading_audio(reading: String) -> Array:
-	var out: Array = []
-	if not listening_available():
-		return out
-	for one in KanaDB.split_kana(reading):
-		var p := listening_file(str(one))
-		if p != "":
-			out.append(p)
-	return out
 
 
 func _build_kana_read(q: Dictionary, kana: String) -> void:
