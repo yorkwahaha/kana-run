@@ -461,70 +461,107 @@ func _reposition_banner() -> void:
 	_banner.pivot_offset = Vector2(_banner.size.x * 0.5, h * 0.5)
 
 
-# ── 觸控面板 ────────────────────────────────────────────────────────────
+## 觸控面板
+##
+## 版面：左右兩組各兩顆。
+##   左下 = 左移／閃避      右下 = 中線／右移
+##
+## 為什麼不放三顆並排在底部中間：
+## 平板橫握時雙手拇指落在左右兩側，畫面正中央其實是「看不見摸不到」的
+## 區域。把「中」和「閃」放在那裡有兩個問題 ——
+##   1. 它們會壓在跑者與路面中央，遮住最需要看的區域
+##   2. 玩家得把手移到螢幕中間去按，姿勢很彆扭
+##
+## 改成「左邊一組、右邊一組」之後，每顆都在對應那隻手的拇指自然落點上，
+## 雙手握持時完全不用移手。
+##
+## 位置用「父容器寬度 - 固定邊距」算，不用 anchor。
+## anchor 在 PRESET_BOTTOM_* 需要父容器已經有尺寸才能解析 global_rect，
+## 在還沒完成第一次佈局時會得到 NaN 或負值，排版時機難掌握。
+## 直接算像素並在 _notification(NOTIFICATION_RESIZED) 重算，最穩。
+const TOUCH_MARGIN := 18.0
+const TOUCH_GAP := 8.0
+const TOUCH_W := 84.0
+const TOUCH_H := 66.0
+
 func _build_touch_pad() -> void:
 	_touch_pad = Control.new()
-	_touch_pad.anchor_left = 0.0
-	_touch_pad.anchor_right = 1.0
-	_touch_pad.anchor_top = 1.0
-	_touch_pad.anchor_bottom = 1.0
-	_touch_pad.offset_top = -190
+	_touch_pad.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_touch_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_touch_pad.visible = DisplayServer.is_touchscreen_available()
+	# 桌機沒有觸控螢幕時不顯示。OS.has_feature("web") 讓網頁版一律顯示 ——
+	# 平板跑在瀏覽器裡時 DisplayServer 有時回報 false，
+	# 但那正是最需要按鈕的情況，所以寧可多顯示也不要沒有。
+	var touch := DisplayServer.is_touchscreen_available() or OS.has_feature("web")
+	_touch_pad.visible = touch
 	add_child(_touch_pad)
 
-	var mk := func(text: String) -> Button:
+	var mk := func(text: String, tint: Color) -> Button:
 		var b := Button.new()
 		b.text = text
-		b.custom_minimum_size = Vector2(96, 74)
+		b.custom_minimum_size = Vector2(TOUCH_W, TOUCH_H)
+		b.size = Vector2(TOUCH_W, TOUCH_H)
+		b.position = Vector2.ZERO
 		b.focus_mode = Control.FOCUS_NONE
 		b.add_theme_font_override("font", FontKit.bold)
-		b.add_theme_font_size_override("font_size", 26)
-		b.add_theme_color_override("font_color", Color(1, 1, 1, 0.9))
-		var sb := UiKit.flat_new(Color(0.10, 0.10, 0.20, 0.45), 20, Color(0.5, 0.58, 1.0, 0.35), 2)
+		b.add_theme_font_size_override("font_size", 24)
+		b.add_theme_color_override("font_color", Color(1, 1, 1, 0.92))
+		# 半透明底 + 描邊：看得到按鈕在哪，但不遮住底下的路面
+		var sb := UiKit.flat_new(Color(0.10, 0.10, 0.20, 0.32), 18, tint, 2)
 		b.add_theme_stylebox_override("normal", sb)
-		var hv := UiKit.flat_new(Color(0.24, 0.24, 0.42, 0.68), 20, Color(0.6, 0.68, 1.0, 0.55), 2)
+		var hv := UiKit.flat_new(Color(tint.r, tint.g, tint.b, 0.55), 18,
+				Color(tint.r, tint.g, tint.b, 0.7), 2)
 		b.add_theme_stylebox_override("hover", hv)
 		b.add_theme_stylebox_override("pressed", hv)
 		return b
 
-	var left: Button = mk.call("左")
-	left.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	left.offset_left = 22
-	left.offset_top = -88
-	left.offset_right = 118
-	left.offset_bottom = -14
-	_touch_pad.add_child(left)
+	var ink := Color(0.5, 0.58, 1.0, 0.40)
+	var dodge_tint := Color(0.95, 0.72, 0.38, 0.45)
+
+	var left: Button = mk.call("左", ink)
 	left.pressed.connect(func(): _emit_lane(-1))
+	_touch_pad.add_child(left)
 
-	var mid: Button = mk.call("中")
-	mid.anchor_left = 0.5
-	mid.anchor_right = 0.5
-	mid.offset_left = -48
-	mid.offset_right = 48
-	mid.offset_top = -88
-	mid.offset_bottom = -14
-	_touch_pad.add_child(mid)
-	mid.pressed.connect(func(): _emit_lane(0))
-
-	var right: Button = mk.call("右")
-	right.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	right.offset_left = -118
-	right.offset_top = -88
-	right.offset_right = -22
-	right.offset_bottom = -14
-	_touch_pad.add_child(right)
-	right.pressed.connect(func(): _emit_lane(1))
-
-	var duck: Button = mk.call("閃")
-	duck.anchor_left = 0.5
-	duck.anchor_right = 0.5
-	duck.offset_left = -48
-	duck.offset_right = 48
-	duck.offset_top = -172
-	duck.offset_bottom = -98
-	_touch_pad.add_child(duck)
+	var duck: Button = mk.call("閃", dodge_tint)
 	duck.pressed.connect(func(): _emit_dodge())
+	_touch_pad.add_child(duck)
+
+	var mid: Button = mk.call("中", ink)
+	mid.pressed.connect(func(): _emit_lane(0))
+	_touch_pad.add_child(mid)
+
+	var right: Button = mk.call("右", ink)
+	right.pressed.connect(func(): _emit_lane(1))
+	_touch_pad.add_child(right)
+
+	_layout_touch_pad()
+
+
+## 把四顆按鈕擺到「左下兩顆、右下兩顆」。
+## 縱向貼底：手指從下方自然伸入，行程最短。
+func _layout_touch_pad() -> void:
+	if _touch_pad == null or not is_instance_valid(_touch_pad):
+		return
+	var w := _touch_pad.size.x
+	var h := _touch_pad.size.y
+	if w <= 0.0 or h <= 0.0:
+		return
+	var y := h - TOUCH_H - TOUCH_MARGIN
+	var step := TOUCH_W + TOUCH_GAP
+	# 由外往內排：最外側是「左」與「右」，靠內側是「閃」與「中」。
+	# 拇指自然落下時最容易按到的是外側那顆，所以把常用動作放外側。
+	var left: Button = _touch_pad.get_child(0) as Button
+	var duck: Button = _touch_pad.get_child(1) as Button
+	var mid: Button = _touch_pad.get_child(2) as Button
+	var right: Button = _touch_pad.get_child(3) as Button
+	if left: left.position = Vector2(TOUCH_MARGIN, y)
+	if duck: duck.position = Vector2(TOUCH_MARGIN + step, y)
+	if right: right.position = Vector2(w - TOUCH_MARGIN - TOUCH_W, y)
+	if mid: mid.position = Vector2(w - TOUCH_MARGIN - TOUCH_W - step, y)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESIZED and _touch_pad != null:
+		_layout_touch_pad()
 
 
 signal lane_requested(lane: int)

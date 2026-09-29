@@ -13,39 +13,44 @@ if not defined GODOTC goto :nogodot
 
 echo.
 echo ==========================================================
-echo  1/6  question generator self-test
+echo  1/7  question generator self-test
 echo ==========================================================
 "%GODOTC%" --headless --path "%CD%" -- --selftest
 echo.
 echo ==========================================================
-echo  2/6  input pipeline (keyboard + touch gestures)
+echo  2/7  input pipeline (keyboard + touch gestures)
 echo ==========================================================
 "%GODOTC%" --headless --path "%CD%" --script "%CD%\tools\input_test.gd" 2>&1 | findstr /C:"FAIL" /C:"[input-test]"
 echo.
 echo ==========================================================
-echo  3/6  runner ground contact (kneel / prone)
+echo  3/7  runner ground contact (kneel / prone)
 echo ==========================================================
 "%GODOTC%" --headless --path "%CD%" --script "%CD%\tools\prone_test.gd" 2>&1 | findstr /C:"FAIL" /C:"[prone-test]"
 echo.
 echo ==========================================================
-echo  4/6  word-question audio coverage
+echo  4/7  word-question audio coverage
 echo ==========================================================
 "%GODOTC%" --headless --path "%CD%" --script "%CD%\tools\word_audio_test.gd" 2>&1 | findstr /C:"FAIL" /C:"[word-audio]"
 echo.
 echo ==========================================================
-echo  5/6  full run, no mistakes  (watch = stone check)
+echo  5/7  full run, no mistakes  (watch = stone check)
 echo ==========================================================
 "%GODOTC%" --headless --path "%CD%" --quit-after 20000 -- --watch --perfect --turbo=20 2>&1 | findstr /C:"[watch]" /C:"[kana-run]"
 echo.
 echo ==========================================================
-echo  6/6  full run, with mistakes
+echo  6/7  full run, with mistakes
 echo ==========================================================
 "%GODOTC%" --headless --path "%CD%" --quit-after 20000 -- --watch --autoplay --turbo=20 2>&1 | findstr /C:"[watch]" /C:"[kana-run]"
 echo.
+echo ==========================================================
+echo  7/7  touch pad layout (thumb reach, not over the runner)
+echo ==========================================================
+"%GODOTC%" --headless --path "%CD%" --script "%CD%\tools\touch_test.gd" 2>&1 | findstr /C:"FAIL" /C:"[touch]"
+echo.
 echo   "missing 0 frames total" means all three stelae were on screen
 echo   for the entire run, i.e. no bug.
-echo   "fail 0" in stages 2-4 means input, ground contact and
-echo   word-question audio are all correct.
+echo   "fail 0" in stages 2-4 and 7 means input, ground contact,
+echo   word-question audio and touch layout are all correct.
 echo.
 pause
 exit /b 0

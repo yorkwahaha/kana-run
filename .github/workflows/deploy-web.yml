@@ -81,18 +81,39 @@ jobs:
           test -f "$DEST/web_nothreads_release.zip" \
             || { echo "web_nothreads_release.zip 不在包裡，匯出一定失敗"; exit 1; }
 
+      # 第一次 checkout 之後 .godot/ 是空的，資源還沒匯入。
+      # 不先 --import 直接匯出會得到一個沒有任何材質的 pck。
       - name: Import resources
-        run: godot --headless --path . --import
+        run: |
+          godot --headless --path . --import 2>&1 | tail -5
+          # 匯入在無音效輸出的 headless 環境下可能「看起來成功」但其實沒產出。
+          # 逐一檢查關鍵資產，缺任何一個就明確失敗，不要讓它靜靜流到部署。
+          missing=0
+          for f in .godot/imported/*.oggvorbisstr; do
+            [ -e "$f" ] || { echo "沒有匯入任何 ogg 音訊"; missing=1; }
+            break
+          done
+          ls .godot/imported/*.mp3str >/dev/null 2>&1 || { echo "沒有匯入任何 mp3 語音"; missing=1; }
+          ls .godot/imported/*.ttf >/dev/null 2>&1 || { echo "沒有匯入字型"; missing=1; }
+          echo "imported oggvorbisstr: $(ls .godot/imported/*.oggvorbisstr 2>/dev/null | wc -l)"
+          echo "imported mp3str      : $(ls .godot/imported/*.mp3str 2>/dev/null | wc -l)"
+          echo "imported ttf        : $(ls .godot/imported/*.ttf 2>/dev/null | wc -l)"
+          exit $missing
 
       - name: Export web
         run: |
+          set -euo pipefail
           mkdir -p build/web
           godot --headless --path . --export-release "Web" build/web/index.html
-          rc=$?
-          echo "templates:"; ls ~/.local/share/godot/export_templates/*/ 2>/dev/null | head -20
-          if [ $rc -ne 0 ]; then
-            echo "export failed (rc=$rc)"
-            exit $rc
+          echo "templates:"; ls ~/.local/share/godot/export_templates/*/ 2>/dev/null | head -5
+          # pck 大小是「有沒有真的把資源打進去」最可靠的指標。
+          # 13MB 左右表示音訊字型都在；7MB 表示匯入步驟沒生效，
+          # 遊戲會安靜地退回程序化音效而不報任何錯。
+          size=$(stat -c%s build/web/index.pck)
+          echo "pck size: $((size / 1048576)) MB"
+          if [ "$size" -lt 10000000 ]; then
+            echo "pck 只有 $((size / 1048576)) MB，資源沒有完整匯入"
+            exit 1
           fi
 
       - name: Verify output
