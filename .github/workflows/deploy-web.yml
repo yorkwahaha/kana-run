@@ -45,26 +45,40 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.local/share/godot/export_templates
-          key: godot-templates-${{ env.GODOT_VERSION }}-v2
+          key: godot-templates-${{ env.GODOT_VERSION }}-v3
 
+      # .tpz 裡的 version.txt 內容是 "4.7.2.stable"（點），
+      # 但下載檔名是 "4.7.2-stable"（減號）。Godot 是拿 version.txt 的
+      # 內容去比對資料夾名稱，不符就把整個目錄視為無效，於是報
+      # "No export template found at the expected path:"。
+      #
+      # 那行訊息後面的路徑在 Actions 日誌裡會被截斷成空白，
+      # 看起來像「完全沒下載」，實際上檔案都在、只是資料夾名稱不對。
+      # 所以資料夾名稱必須從 version.txt 讀出來，不能用變數拼。
       - name: Download export templates (cache miss)
         if: steps.tpl-cache.outputs.cache-hit != 'true'
         run: |
-          BASE=~/.local/share/godot/export_templates
+          set -euo pipefail
           curl -sSL -o templates.tpz \
             "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
           echo "downloaded $(du -h templates.tpz | cut -f1)"
-          # .tpz 內部已經有一層 templates/，所以解到 BASE 會多出一層：
-          #   BASE/templates/android_release.apk   ← Godot 找不到這裡
-          # Godot 要的是：
-          #   BASE/4.7.2.stable/web_nothreads_release.zip
-          # 用 -j 直接指定解出檔案的位置，避開那層多餘的目錄。
-          TPL_DIR="$BASE/${GODOT_VERSION}"
-          mkdir -p "$TPL_DIR"
-          unzip -q -j templates.tpz 'templates/*' -d "$TPL_DIR"
-          echo "--- $TPL_DIR ---"
-          ls "$TPL_DIR" | head -40
-          test -f "$TPL_DIR/web_nothreads_release.zip" \
+
+          # 先解到暫存目錄，用 version.txt 的內容當資料夾名。
+          rm -rf tpl_stage
+          mkdir -p tpl_stage
+          unzip -q -j templates.tpz 'templates/*' -d tpl_stage
+          # version.txt 內容形如 "4.7.2.stable"，正是 Godot 期望的目錄名。
+          VER_NAME="$(cat tpl_stage/version.txt)"
+          echo "version.txt says: $VER_NAME"
+
+          DEST="$HOME/.local/share/godot/export_templates/$VER_NAME"
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+          mv tpl_stage/* "$DEST"/
+
+          echo "--- installed to $DEST ---"
+          ls "$DEST" | head -40
+          test -f "$DEST/web_nothreads_release.zip" \
             || { echo "web_nothreads_release.zip 不在包裡，匯出一定失敗"; exit 1; }
 
       - name: Import resources
