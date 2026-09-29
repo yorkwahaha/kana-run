@@ -92,7 +92,10 @@ jobs:
         run: |
           godot --headless --path . --import 2>&1 | tail -3
           missing=0
-          for pat in "*.oggvorbisstr" "*.mp3str" "*.fontdata"; do
+          # 全部音訊都是 MP3，匯入後的副檔名是 .mp3str。
+          # 早期用過 Ogg Vorbis（.oggvorbisstr），但 iOS Safari 18.4 以下不支援，
+          # 症狀是「音效有聲音、BGM 靜默」而沒有任何錯誤訊息。
+          for pat in "*.mp3str" "*.fontdata"; do
             n=$(ls .godot/imported/$pat 2>/dev/null | wc -l)
             echo "imported $pat: $n"
             if [ "$n" -eq 0 ]; then
@@ -100,6 +103,11 @@ jobs:
               missing=1
             fi
           done
+          # 順便擋住 Ogg 混入：未來有人（或 AI）再壓成 Ogg 會直接讓 iPad 沒聲音
+          if ls .godot/imported/*.oggvorbisstr >/dev/null 2>&1; then
+            echo "★ 偵測到 Ogg 音訊，iOS Safari 可能無法播放。請改用 MP3。"
+            missing=1
+          fi
           exit $missing
 
       - name: Export web
@@ -114,7 +122,7 @@ jobs:
           # pck 有內部壓縮，13MB 原始音訊進去只會變成 7MB 左右，
           # 所以大小不能當判準。要直接檢查音訊有沒有真的被打包。
           missing=0
-          for pat in ".oggvorbisstr" ".mp3str" ".fontdata"; do
+          for pat in ".mp3str" ".fontdata"; do
             n=$(grep -c -- "$pat" build/web/index.pck 2>/dev/null || true)
             n=${n:-0}
             echo "pck contains $pat: $n"
@@ -123,6 +131,10 @@ jobs:
               missing=1
             fi
           done
+          if grep -q -- ".oggvorbisstr" build/web/index.pck 2>/dev/null; then
+            echo "★ pck 裡有 Ogg 音訊，iOS Safari 可能無法播放"
+            missing=1
+          fi
 
           # 最可靠的驗證：實際執行匯出出的 pck，確認遊戲讀得到音訊。
           # 單看檔案在不在不夠 —— 執行期還要能 DirAccess/ResourceLoader 讀到。
