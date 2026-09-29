@@ -1,0 +1,88 @@
+name: Deploy Web
+
+# 每次 push 到 main 就重新匯出 Web 並發佈到 GitHub Pages。
+# 這樣網頁版永遠跟著 main 一致，不必在本機手動跑 export-web.bat 再上傳。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:      # 可以在 Actions 頁面手動重跑，不必假造一個 commit
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write          # Pages 部署需要這個才能拿到部署憑證
+
+# 同時只能跑一個部署，否則兩個 push 會互相搶快取。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2-stable
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Godot 執行期與匯出範本是兩個不同的檔案，都要抓。
+      - name: Download Godot
+        run: |
+          curl -sSL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot
+          chmod +x /usr/local/bin/godot
+          godot --version
+
+      # 匯出範本約 1.2GB，每次重抓太慢，用 actions/cache 快取。
+      # key 綁版本號：升級 Godot 時自動失效重抓。
+      - name: Cache export templates
+        id: tpl-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/export_templates
+          key: godot-templates-${{ env.GODOT_VERSION }}
+
+      - name: Download export templates (cache miss)
+        if: steps.tpl-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/export_templates
+          curl -sSL -o templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          unzip -q templates.tpz -d ~/export_templates
+
+      # 第一次 checkout 之後 .godot/ 是空的，資源還沒匯入。
+      # 不先 --import 直接匯出會得到一個沒有任何材質的 pck。
+      - name: Import resources
+        run: godot --headless --path . --import
+
+      - name: Export web
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --export-release "Web" build/web/index.html
+
+      - name: Verify output
+        run: |
+          test -f build/web/index.html
+          test -f build/web/index.pck
+          test -f build/web/index.wasm
+          ls -la build/web
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
