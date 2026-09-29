@@ -168,17 +168,56 @@ func _install_web_audio_unlock() -> void:
 ## 猜錯的成本很高。
 ##
 ## 在瀏覽器主控台執行：  Sfx.audio_debug()
+## 或啟動時加 --audiodebug，會在啟動後印一次完整報告。
 func audio_debug() -> void:
-	if not OS.has_feature("web"):
-		print("[audio] 非 web 版，用 OS.get_name() = ", OS.get_name())
-		print("[audio] 音訊驅動 = ", AudioServer.get_driver_name() if AudioServer.has_method("get_driver_name") else "n/a")
-		print("[audio] 外部 BGM = ", using_external_bgm, "  曲目數 = ", _bgm_tracks.size())
-		return
-	var js := JavaScriptBridge
-	if js == null:
-		return
-	var r: Variant = js.eval("JSON.stringify(window.__kanaAudio || {})", true)
-	print("[audio] ", r)
+	print("[audio] === 音訊診斷 ===")
+	print("[audio] OS            : ", OS.get_name())
+	print("[audio] feature web   : ", OS.has_feature("web"))
+	print("[audio] mix rate      : ", AudioServer.get_mix_rate())
+	print("[audio] bus count     : ", AudioServer.bus_count)
+
+	print("[audio] --- bus 狀態 ---")
+	for i in AudioServer.bus_count:
+		var nm := AudioServer.get_bus_name(i)
+		var vol := AudioServer.get_bus_volume_db(i)
+		var mute := AudioServer.is_bus_mute(i)
+		print("[audio]   [%d] %-8s vol=%7.1f dB mute=%s send=%s" % [
+			i, nm, vol, str(mute), AudioServer.get_bus_send(i)])
+
+	print("[audio] --- BGM ---")
+	print("[audio] external bgm  : ", using_external_bgm)
+	print("[audio] bgm tracks    : ", _bgm_tracks.size())
+	print("[audio] ext sfx count : ", _ext_sfx.size())
+	if _bgm_player == null:
+		print("[audio]   ★ _bgm_player 是 null")
+	else:
+		print("[audio]   playing     : ", _bgm_player.playing)
+		print("[audio]   volume_db   : %.1f" % _bgm_player.volume_db)
+		print("[audio]   bus         : ", _bgm_player.bus)
+		print("[audio]   stream      : ",
+			_bgm_player.stream.get_class() if _bgm_player.stream != null else "null")
+		if _bgm_player.stream != null:
+			print("[audio]   length      : %.2f 秒" % _bgm_player.stream.get_length())
+			var mp := _bgm_player.stream as AudioStreamMP3
+			if mp != null:
+				print("[audio]   loop        : ", mp.loop)
+				print("[audio]   mix_rate    : ", mp.mix_rate)
+				print("[audio]   stereo      : ", mp.stereo)
+
+	print("[audio] --- 風聲 ---")
+	if _wind == null:
+		print("[audio]   ★ _wind 是 null")
+	else:
+		print("[audio]   playing     : ", _wind.playing)
+		print("[audio]   volume_db   : %.1f" % _wind.volume_db)
+
+	if OS.has_feature("web"):
+		var js := JavaScriptBridge
+		if js != null:
+			print("[audio] --- 瀏覽器 ---")
+			print("[audio]   ", js.eval(
+				"JSON.stringify({isSecure: window.isSecureContext,"
+				+ " hasAC: !!(window.AudioContext||window.webkitAudioContext)})", true))
 
 
 func _ready() -> void:

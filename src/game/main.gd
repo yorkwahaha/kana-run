@@ -176,6 +176,15 @@ func _ready() -> void:
 	# 放在標題畫面做是不夠的：--perfect / --autoplay 會直接開局，
 	# 那條路徑根本不會經過標題。改成 _ready 裡直接 await 三幀。
 	await _warmup()
+	if _debug_audiodebug:
+		# 延後幾幀再印：AudioServer 的 bus 要等 Sfx._ready() 建好
+		await get_tree().process_frame
+		await get_tree().process_frame
+		Sfx.audio_debug()
+		# 使用者點過畫面之後再印一次 —— 瀏覽器的 AudioContext
+		# 只有在手勢之後才會真的 running，印一次看不出前後差異。
+		if OS.has_feature("web"):
+			_print_audio_again_later()
 	if _autoplay:
 		if unit_kinds.is_empty():
 			unit_kinds = [KanaDB.Kind.SEION]
@@ -183,6 +192,16 @@ func _ready() -> void:
 	else:
 		_enter_title()
 	_open_test_page()
+
+
+func _print_audio_again_later() -> void:
+	## 使用者點過畫面之後再印一次。
+	## 網頁版的 AudioContext 在手勢之前一定是 suspended，
+	## 印一次看不出「手勢之後變 running」這個關鍵變化。
+	for i in range(6):
+		await get_tree().create_timer(2.0).timeout
+		print("[audio] === 第 %d 次檢查（使用者應該已經點過了）===" % (i + 1))
+		Sfx.audio_debug()
 
 
 func _open_test_page() -> void:
@@ -254,6 +273,10 @@ func _parse_test_args() -> void:
 		elif arg == "--overdrive":
 			# 開局直接進極限，檢查暗角、倍率、碑面閃爍
 			_debug_overdrive = true
+		elif arg == "--audiodebug":
+			# 印出完整音訊狀態。網頁版「沒聲音」沒有任何錯誤訊息，
+			# 沒有這份報告就只能靠猜。
+			_debug_audiodebug = true
 		elif arg == "--framestats":
 			# 印出掉幀那一幀在做什麼，用來找頓頓的原因
 			_framestats = true
@@ -1055,6 +1078,7 @@ func _frame_probe(delta: float) -> void:
 	_prev_lane = _lane
 var _debug_fling_pending := false
 var _debug_overdrive := false
+var _debug_audiodebug := false
 
 func _tick_relic_status() -> void:
 	_relic_status_t -= get_process_delta_time()
