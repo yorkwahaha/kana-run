@@ -64,9 +64,26 @@ var _wind: AudioStreamPlayer
 var wind_gain_db := -60.0
 var _weather := ""          ## 目前分區天氣（"" / rain / storm / combo）
 
+## 佔住 manifest 的參照，並提供清單查詢。
+##
+## 為什麼需要：音訊與字型全都是用字串路徑在執行期動態載入的
+## （DirAccess 掃描 + ResourceLoader.load），沒有任何場景或 .tscn 參照。
+## 這在匯出後會壞兩次：
+##   1. export_filter="all_resources" 只打包有相依關係的資源 → 整批音訊消失
+##   2. DirAccess.get_files_at() 在 pck 裡讀不到目錄 → 掃描結果是空的
+## 兩者的症狀都是「匯出成功、沒有任何錯誤訊息」，但遊戲會安靜地
+## 退回內建程序化配樂。線上版就這樣少了 6.4MB 音訊。
+##
+## 改完 audio/ 或 assets/fonts/ 記得重跑 python tools/gen_manifest.py。
+var _manifest: GDScript = preload("res://src/core/audio_manifest.gd")
+var _manifest_keepalive: Array = _manifest.KEEPALIVE
+
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# _manifest_keepalive 的唯一作用是讓音訊進入資源依賴圖，
+	# 這樣匯出時才會被打進 pck。詳見該變數的註解。
+	assert(not _manifest_keepalive.is_empty(), "audio manifest 是空的，請跑 tools/gen_manifest.py")
 	_setup_buses()
 	_build_voices()
 	_build_synth_bank()
@@ -87,10 +104,36 @@ func _load_external() -> void:
 
 
 ## 掃描 music 資料夾。回傳檔案簽章（檔名串接）用來判斷有沒有變動。
+##
+## 為什麼不用 DirAccess.get_files_at()：
+## 那個 API 在**匯出後的 pck 裡讀不到目錄內容**。桌機跑原始檔案時正常，
+## 網頁版就是空的 —— 症狀是設定畫面寫「目前使用內建程序化配樂」，
+## 而且沒有任何錯誤訊息。線上版就這樣靜靜地少了全部外部音訊。
+##
+## 改用 manifest 的清單（由 tools/gen_manifest.py 掃描實際檔案產生）。
+## manifest 裡的每個項目都是 preload，資源一定在 pck 裡。
+## 同時保留目錄掃描作為開發期的補充：使用者若在執行中丟檔進去，
+## 桌機版仍能即時生效（遊戲每 2 秒會重掃一次）。
 func _reload_music() -> void:
 	_bgm_tracks.clear()
 	_bgm_track_names.clear()
 	var sig := ""
+	var seen := {}
+
+	# 先走 manifest —— 這是唯一在匯出後可靠的來源
+	for entry in _manifest.MUSIC:
+		var path: String = entry["path"]
+		if seen.has(path):
+			continue
+		seen[path] = true
+		var stream := _try_load(path)
+		if stream == null:
+			continue
+		_bgm_tracks.append(stream)
+		_bgm_track_names.append(str(entry["name"]))
+		sig += path + "|"
+
+	# 再補上目錄裡有、但 manifest 還沒收錄的（開發期丟檔的情況）
 	if DirAccess.dir_exists_absolute(DIR_MUSIC):
 		var names: Array[String] = []
 		for f in DirAccess.get_files_at(DIR_MUSIC):
@@ -98,12 +141,19 @@ func _reload_music() -> void:
 				names.append(f)
 		names.sort()
 		for f in names:
-			sig += f + "|"
-			var stream := _try_load(DIR_MUSIC + f)
-			if stream != null:
-				_bgm_tracks.append(stream)
-				_bgm_track_names.append(f.get_file().get_basename())
+			var path := DIR_MUSIC + f
+			if seen.has(path):
+				continue
+			seen[path] = true
+			var stream := _try_load(path)
+			if stream == null:
+				continue
+			_bgm_tracks.append(stream)
+			_bgm_track_names.append(f.get_file().get_basename())
+			sig += path + "|"
+
 	_music_sig = sig
+
 
 	var had := using_external_bgm
 	using_external_bgm = not _bgm_tracks.is_empty()
