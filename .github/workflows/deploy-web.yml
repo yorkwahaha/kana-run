@@ -39,23 +39,33 @@ jobs:
 
       # 匯出範本約 1.2GB，每次重抓太慢，用 actions/cache 快取。
       # key 綁版本號：升級 Godot 時自動失效重抓。
+      #
+      # 路徑必須是 Godot 在 Linux 上的實際位置
+      # (~/.local/share/godot/export_templates/)，不是 ~/export_templates。
+      # 放錯位置的症狀是匯出時只印一行
+      #   "No export template found at the expected path: …"
+      # 而且那行路徑會被截斷，看不出真正缺什麼。
       - name: Cache export templates
         id: tpl-cache
         uses: actions/cache@v4
         with:
-          path: ~/export_templates
+          path: ~/.local/share/godot/export_templates
           key: godot-templates-${{ env.GODOT_VERSION }}
 
       - name: Download export templates (cache miss)
         if: steps.tpl-cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/export_templates
+          TPL_DIR=~/.local/share/godot/export_templates
+          mkdir -p "$TPL_DIR"
           curl -sSL -o templates.tpz \
             "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
-          unzip -q templates.tpz -d ~/export_templates
+          echo "downloaded $(du -h templates.tpz | cut -f1)"
+          # .tpz 是 zip，內層已經有一層 templates/，解到上一層即可。
+          unzip -q templates.tpz -d "$TPL_DIR"
+          echo "--- templates dir ---"
+          ls "$TPL_DIR"
+          ls "$TPL_DIR"/*/ | head -40
 
-      # 第一次 checkout 之後 .godot/ 是空的，資源還沒匯入。
-      # 不先 --import 直接匯出會得到一個沒有任何材質的 pck。
       - name: Import resources
         run: godot --headless --path . --import
 
@@ -63,6 +73,12 @@ jobs:
         run: |
           mkdir -p build/web
           godot --headless --path . --export-release "Web" build/web/index.html
+          rc=$?
+          echo "templates:"; ls ~/.local/share/godot/export_templates/*/ 2>/dev/null | head -20
+          if [ $rc -ne 0 ]; then
+            echo "export failed (rc=$rc)"
+            exit $rc
+          fi
 
       - name: Verify output
         run: |
