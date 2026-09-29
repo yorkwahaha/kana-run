@@ -1496,6 +1496,7 @@ func _resolve_hit(kana: String, ms: float) -> void:
 		lane_x = (stone.position.x + _runner.position.x) * 0.5
 	stone.smash(lane_x)
 	_runner.burst()
+	_runner.guard()
 
 	var grade := _grade(ms)
 	var mult := _combo_mult()

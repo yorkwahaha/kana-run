@@ -4,7 +4,8 @@ extends Node3D
 ## 用 QuadMesh 而不是 Sprite3D：倒地測試只量 MeshInstance3D 的包圍盒。
 ## 腳底放在本地 y=0。倒下、撞飛都換畫好的連續幀，不再把站著的圖轉平。
 
-const FIG_H := 1.78
+# 護頭時手比頭頂還高，畫布從 626 加到 667。身高跟著加，人在畫面上的大小才不變。
+const FIG_H := 1.78 * 667.0 / 626.0
 const GROUND_Y := 0.03
 
 const _RUN: Array[Texture2D] = [
@@ -42,6 +43,19 @@ const _FLING: Array[Texture2D] = [
 	preload("res://assets/runner/fling_5.png"),
 	preload("res://assets/runner/fling_6.png"),
 ]
+## 撞破石碑時雙手交叉護頭：抬手、停住、再放下。
+const GUARD_RAISE := 0.20
+const GUARD_HOLD := 0.34
+const GUARD_LOWER := 0.18
+const GUARD_TIME := GUARD_RAISE + GUARD_HOLD + GUARD_LOWER
+const _GUARD: Array[Texture2D] = [
+	preload("res://assets/runner/guard_0.png"),
+	preload("res://assets/runner/guard_1.png"),
+	preload("res://assets/runner/guard_2.png"),
+	preload("res://assets/runner/guard_3.png"),
+	preload("res://assets/runner/guard_4.png"),
+	preload("res://assets/runner/guard_5.png"),
+]
 
 var speed01 := 0.0
 
@@ -58,6 +72,7 @@ var _duck := 0.0
 var _duck_target := 0.0
 var _burst := 0.0
 var _stagger := 0.0
+var _guard := 0.0
 var _collapse := 0.0
 var _collapse_on := false
 var _collapse_flung := false
@@ -119,10 +134,17 @@ func stagger() -> void:
 	_duck_target = maxf(_duck_target, 0.55)
 
 
+## 答對、石碑碎開的一瞬間：雙手交叉擋在腦後。
+func guard() -> void:
+	_guard = GUARD_TIME
+	_stagger = 0.0
+
+
 ## flung=true：被撞飛，人在空中翻出去再趴下。false：體力用盡，往前跪倒。
 func collapse(flung := false) -> void:
 	_collapse = 0.0
 	_collapse_on = true
+	_guard = 0.0
 	_collapse_flung = flung
 	if flung:
 		_fling_t = 0.0
@@ -140,6 +162,7 @@ func reset() -> void:
 	_duck_target = 0.0
 	_burst = 0.0
 	_stagger = 0.0
+	_guard = 0.0
 	_collapse = 0.0
 	_collapse_on = false
 	_collapse_flung = false
@@ -177,6 +200,11 @@ func _process(delta: float) -> void:
 	# 靜止約 0.92 秒一個步伐循環，全速約 0.40 秒。十二幀攤在這一圈上。
 	var cycle := lerpf(0.92, 0.40, speed01)
 	_phase += delta / cycle
+	if _guard > 0.0:
+		_guard = maxf(0.0, _guard - delta)
+		_draw_guard(GUARD_TIME - _guard)
+		_shadow.scale = Vector3.ONE
+		return
 
 	var squash := 1.0 - _duck * 0.34
 	var bob := absf(sin(_phase * TAU)) * (0.03 + speed01 * 0.035)
@@ -187,6 +215,21 @@ func _process(delta: float) -> void:
 	_set_tex(_RUN[frame])
 	_rig.rotation = Vector3(-_stagger * 0.12, _bank * 0.35, _bank)
 	_shadow.scale = Vector3.ONE * (1.0 - _duck * 0.22)
+
+
+func _draw_guard(elapsed: float) -> void:
+	var n := _GUARD.size()
+	var idx := n - 1
+	if elapsed < GUARD_RAISE:
+		idx = mini(int(elapsed / GUARD_RAISE * float(n)), n - 1)
+	elif elapsed >= GUARD_RAISE + GUARD_HOLD:
+		var u := clampf((elapsed - GUARD_RAISE - GUARD_HOLD) / GUARD_LOWER, 0.0, 1.0)
+		idx = n - 1 - mini(int(u * float(n)), n - 1)
+	_set_tex(_GUARD[idx])
+	_billboard.scale = Vector3(1.0 + _burst * 0.04, 1.0, 1.0)
+	_billboard.position.y = FIG_H * 0.5
+	_billboard.rotation = Vector3.ZERO
+	_rig.rotation = Vector3(0.0, _bank * 0.25, _bank * 0.6)
 
 
 func _process_collapse(delta: float) -> void:
