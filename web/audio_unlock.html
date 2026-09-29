@@ -1,0 +1,99 @@
+<script>
+// ── 網頁版音訊解鎖 ──────────────────────────────────────────────────────
+// 為什麼需要這個：
+//   瀏覽器禁止網頁在沒有使用者手勢時發聲。Godot 的 AudioContext 初始是
+//   suspended，必須在使用者點過畫面之後 resume()。
+//
+//   Godot 4.7 把 AudioContext 放在 index.js 的 module scope
+//   （`var GodotAudio = { ctx: AudioContext, ... }`），沒有掛到 window。
+//   GDScript 的 JavaScriptBridge 因此拿不到它；
+//   而 _godot_audio_resume 是 Emscripten 的 wasm import 函式，
+//   只存在於 wasmImports 物件裡給 wasm 呼叫，外部同樣拿不到。
+//
+//   結論：唯一能攔到引擎建立的 AudioContext 的地方，是這支在
+//   index.js **之前** 執行的 script。我們用 Proxy 包一層
+//   window.AudioContext，每當引擎 new 一個就把它記下來，
+//   之後每次使用者輸入就把所有記錄到的 context  resume()。
+//   瀏覽器只在意「有沒有在手勢中呼叫 resume」，不在乎是哪一個 context。
+(function () {
+  const OrigAC = window.AudioContext || window.webkitAudioContext;
+  if (!OrigAC) return;
+
+  const contexts = new Set();
+
+  // 用 Proxy 而不是 prototype getter：
+  // getter 寫在 prototype 上時拿不到建構式的區域變數（ctx 不在 scope），
+  // 而 Proxy 的 get/set 陷阱就在同一個閉包裡，ctx 一定看得到。
+  function makeTracked(Ctor) {
+    return new Proxy(Ctor, {
+      construct(target, args, newTarget) {
+        const ctx = Reflect.construct(target, args, newTarget);
+        contexts.add(ctx);
+        // 狀態變化時自動再 resume 一次。
+        // iOS Safari 切分頁會把 ctx 變成 'interrupted'，這裡能撈回來。
+        if (ctx.onstatechange === null) {
+          ctx.addEventListener('statechange', function () {
+            if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
+              try { ctx.resume(); } catch (e) {}
+            }
+          });
+        }
+        return ctx;
+      },
+      get(target, prop, recv) {
+        if (prop === '__kanaTracked' || prop === '__kanaOriginal') return target;
+        const v = Reflect.get(target, prop, recv);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+  }
+
+  try {
+    Object.defineProperty(window, 'AudioContext', {
+      value: makeTracked(OrigAC), configurable: true, writable: true,
+    });
+    if (window.webkitAudioContext) {
+      Object.defineProperty(window, 'webkitAudioContext', {
+        value: makeTracked(window.webkitAudioContext), configurable: true, writable: true,
+      });
+    }
+  } catch (e) {
+    // 擋掉了就退化成只做 probe（下面 resumeAll 有保險路徑）
+  }
+
+  function resumeAll() {
+    var n = 0;
+    for (const c of contexts) {
+      try {
+        if (c.state === 'suspended' || c.state === 'interrupted') { c.resume(); n++; }
+      } catch (e) {}
+    }
+    // 保險：defineProperty 失敗或引擎繞過 window.AudioContext 時，
+    // 開一個極短的無聲 buffer 來解鎖瀏覽器的 autoplay 閘門。
+    // 瀏覽器是全頁面層級的閘門，任何一個 context 成功啟動就整頁解鎖。
+    if (n === 0) {
+      try {
+        const probe = new OrigAC();
+        const src = probe.createBufferSource();
+        src.buffer = probe.createBuffer(1, 1, 22050);
+        src.connect(probe.destination);
+        src.start(0);
+        contexts.add(probe);
+      } catch (e) {}
+    }
+    if (window.console) console.log('[audio-unlock] resumeAll n=' + n + ' tracked=' + contexts.size);
+  }
+
+  for (const ev of ['pointerdown', 'touchstart', 'keydown', 'mousedown', 'click']) {
+    window.addEventListener(ev, resumeAll, { passive: true, capture: true });
+  }
+  // iOS Safari 切回前景時 ctx 會變 interrupted，這裡撈回來
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) setTimeout(resumeAll, 60);
+  });
+  // 引擎啟動要時間，前幾秒多試幾次，涵蓋「使用者比引擎早點完」
+  for (let i = 0; i < 20; i++) setTimeout(resumeAll, 200 + i * 250);
+
+  window.__kanaAudioUnlock = resumeAll;
+})();
+</script>

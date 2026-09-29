@@ -119,6 +119,15 @@ jobs:
           size=$(stat -c%s build/web/index.pck)
           echo "pck size: $((size / 1048576)) MB"
 
+          # 注入音訊解鎖 script。
+          # 這一步無法從 Godot 專案內完成：AudioContext 在 index.js 的
+          # module scope，既不在 window 上、JavaScriptBridge 也拿不到。
+          # 必須有一支 script 在 index.js **之前** 執行，而 Godot 每次匯出
+          # 都會重新產生 index.html，所以要放在匯出「之後」。
+          pwsh -NoProfile -File tools/inject_web_audio.ps1
+          grep -q '__kanaAudioUnlock' build/web/index.html \
+            || { echo "★ 音訊解鎖 script 沒注入成功"; exit 1; }
+
           # pck 有內部壓縮，13MB 原始音訊進去只會變成 7MB 左右，
           # 所以大小不能當判準。要直接檢查音訊有沒有真的被打包。
           missing=0

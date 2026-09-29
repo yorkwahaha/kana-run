@@ -176,15 +176,17 @@ func _ready() -> void:
 	# 放在標題畫面做是不夠的：--perfect / --autoplay 會直接開局，
 	# 那條路徑根本不會經過標題。改成 _ready 裡直接 await 三幀。
 	await _warmup()
-	if _debug_audiodebug:
+	# 網頁版的除錯旗標不走 OS.get_cmdline_user_args()（那個 API 在 web 匯出
+	# 沒有實作），所以 web 上必須靠 query string 或直接呼叫。
+	# 網址加 ?debug=audiodebug 即可。
+	if _debug_audiodebug or _web_debug_flags().has("audiodebug"):
 		# 延後幾幀再印：AudioServer 的 bus 要等 Sfx._ready() 建好
 		await get_tree().process_frame
 		await get_tree().process_frame
 		Sfx.audio_debug()
 		# 使用者點過畫面之後再印一次 —— 瀏覽器的 AudioContext
 		# 只有在手勢之後才會真的 running，印一次看不出前後差異。
-		if OS.has_feature("web"):
-			_print_audio_again_later()
+		_print_audio_again_later()
 	if _autoplay:
 		if unit_kinds.is_empty():
 			unit_kinds = [KanaDB.Kind.SEION]
@@ -192,6 +194,29 @@ func _ready() -> void:
 	else:
 		_enter_title()
 	_open_test_page()
+
+
+## 網頁版的除錯旗標走網址 query string：index.html?debug=audiodebug,shot=90
+##
+## 為什麼不能用命令列參數：OS.get_cmdline_user_args() 在 web 匯出的
+## wasm 裡沒有實作（那個 API 只在原生平台有意義），回傳空陣列。
+## 所以先前「在 web 版用 --flung 測試」其實從來沒生效過。
+func _web_debug_flags() -> PackedStringArray:
+	var out := PackedStringArray()
+	if not OS.has_feature("web"):
+		return out
+	var js := JavaScriptBridge
+	if js == null:
+		return out
+	var q: Variant = js.eval(
+		"(new URLSearchParams(window.location.search)).get('debug') || ''", true)
+	if q == null:
+		return out
+	for part in str(q).split(",", false):
+		var t := str(part).strip_edges()
+		if t != "":
+			out.append(t)
+	return out
 
 
 func _print_audio_again_later() -> void:
