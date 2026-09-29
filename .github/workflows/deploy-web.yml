@@ -108,15 +108,32 @@ jobs:
           mkdir -p build/web
           godot --headless --path . --export-release "Web" build/web/index.html
           echo "templates:"; ls ~/.local/share/godot/export_templates/*/ 2>/dev/null | head -5
-          # pck 大小是「有沒有真的把資源打進去」最可靠的指標。
-          # 13MB 左右表示音訊字型都在；7MB 表示匯入步驟沒生效，
-          # 遊戲會安靜地退回程序化音效而不報任何錯。
           size=$(stat -c%s build/web/index.pck)
           echo "pck size: $((size / 1048576)) MB"
-          if [ "$size" -lt 10000000 ]; then
-            echo "pck 只有 $((size / 1048576)) MB，資源沒有完整匯入"
-            exit 1
+
+          # pck 有內部壓縮，13MB 原始音訊進去只會變成 7MB 左右，
+          # 所以大小不能當判準。要直接檢查音訊有沒有真的被打包。
+          missing=0
+          for pat in ".oggvorbisstr" ".mp3str" ".fontdata"; do
+            n=$(grep -c -- "$pat" build/web/index.pck 2>/dev/null || true)
+            n=${n:-0}
+            echo "pck contains $pat: $n"
+            if [ "$n" -lt 1 ]; then
+              echo "★ pck 裡沒有 $pat，音訊／字型沒被打包"
+              missing=1
+            fi
+          done
+
+          # 最可靠的驗證：實際執行匯出出的 pck，確認遊戲讀得到音訊。
+          # 單看檔案在不在不夠 —— 執行期還要能 DirAccess/ResourceLoader 讀到。
+          echo "--- running the exported pack ---"
+          timeout 90 godot --headless --main-pack build/web/index.pck -- --perfect --turbo=5 2>&1 \
+            | grep -E "\[sfx\]" | head -3 | tee /tmp/sfx.log || true
+          if ! grep -q "外部 BGM" /tmp/sfx.log; then
+            echo "★ 匯出後的遊戲讀不到外部 BGM"
+            missing=1
           fi
+          exit $missing
 
       - name: Verify output
         run: |
