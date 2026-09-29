@@ -38,33 +38,34 @@ jobs:
           godot --version
 
       # 匯出範本約 1.2GB，每次重抓太慢，用 actions/cache 快取。
-      # key 綁版本號：升級 Godot 時自動失效重抓。
-      #
-      # 路徑必須是 Godot 在 Linux 上的實際位置
-      # (~/.local/share/godot/export_templates/)，不是 ~/export_templates。
-      # 放錯位置的症狀是匯出時只印一行
-      #   "No export template found at the expected path: …"
-      # 而且那行路徑會被截斷，看不出真正缺什麼。
+      # key 綁版本號 + 解壓結構版本：改了解壓方式時把 v2 往上加，
+      # 否則舊的錯誤結構會被 cache 沿用，匯出還是失敗但看不出原因。
       - name: Cache export templates
         id: tpl-cache
         uses: actions/cache@v4
         with:
           path: ~/.local/share/godot/export_templates
-          key: godot-templates-${{ env.GODOT_VERSION }}
+          key: godot-templates-${{ env.GODOT_VERSION }}-v2
 
       - name: Download export templates (cache miss)
         if: steps.tpl-cache.outputs.cache-hit != 'true'
         run: |
-          TPL_DIR=~/.local/share/godot/export_templates
-          mkdir -p "$TPL_DIR"
+          BASE=~/.local/share/godot/export_templates
           curl -sSL -o templates.tpz \
             "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
           echo "downloaded $(du -h templates.tpz | cut -f1)"
-          # .tpz 是 zip，內層已經有一層 templates/，解到上一層即可。
-          unzip -q templates.tpz -d "$TPL_DIR"
-          echo "--- templates dir ---"
-          ls "$TPL_DIR"
-          ls "$TPL_DIR"/*/ | head -40
+          # .tpz 內部已經有一層 templates/，所以解到 BASE 會多出一層：
+          #   BASE/templates/android_release.apk   ← Godot 找不到這裡
+          # Godot 要的是：
+          #   BASE/4.7.2.stable/web_nothreads_release.zip
+          # 用 -j 直接指定解出檔案的位置，避開那層多餘的目錄。
+          TPL_DIR="$BASE/${GODOT_VERSION}"
+          mkdir -p "$TPL_DIR"
+          unzip -q -j templates.tpz 'templates/*' -d "$TPL_DIR"
+          echo "--- $TPL_DIR ---"
+          ls "$TPL_DIR" | head -40
+          test -f "$TPL_DIR/web_nothreads_release.zip" \
+            || { echo "web_nothreads_release.zip 不在包裡，匯出一定失敗"; exit 1; }
 
       - name: Import resources
         run: godot --headless --path . --import
