@@ -13,8 +13,8 @@
 //   結論：唯一能攔到引擎建立的 AudioContext 的地方，是這支在
 //   index.js **之前** 執行的 script。我們用 Proxy 包一層
 //   window.AudioContext，每當引擎 new 一個就把它記下來，
-//   之後每次使用者輸入就把所有記錄到的 context  resume()。
-//   瀏覽器只在意「有沒有在手勢中呼叫 resume」，不在乎是哪一個 context。
+//   之後每次使用者輸入就把記下來的那一個 context resume()。
+//   解鎖是每個 AudioContext 自己的事，另開一個 context 不會讓 Godot 的出聲。
 (function () {
   const OrigAC = window.AudioContext || window.webkitAudioContext;
   if (!OrigAC) return;
@@ -57,31 +57,25 @@
         value: makeTracked(window.webkitAudioContext), configurable: true, writable: true,
       });
     }
-  } catch (e) {
-    // 擋掉了就退化成只做 probe（下面 resumeAll 有保險路徑）
-  }
+  } catch (e) {}
 
+  // 只 resume 引擎已經建立的 context。
+  // 先前 n===0 時會 new 一個無聲的 AudioContext 當保險，
+  // 但那些 context 一建立就是 running，下一輪 n 還是 0，
+  // 計時器 20 次加每次點擊就再長一個，主控台看到 tracked 漲到 29。
   function resumeAll() {
     var n = 0;
     for (const c of contexts) {
-      try {
-        if (c.state === 'suspended' || c.state === 'interrupted') { c.resume(); n++; }
-      } catch (e) {}
+      if (c.state === 'closed') {
+        contexts.delete(c);
+        continue;
+      }
+      if (c.state !== 'suspended' && c.state !== 'interrupted') continue;
+      try { c.resume(); n++; } catch (e) {}
     }
-    // 保險：defineProperty 失敗或引擎繞過 window.AudioContext 時，
-    // 開一個極短的無聲 buffer 來解鎖瀏覽器的 autoplay 閘門。
-    // 瀏覽器是全頁面層級的閘門，任何一個 context 成功啟動就整頁解鎖。
-    if (n === 0) {
-      try {
-        const probe = new OrigAC();
-        const src = probe.createBufferSource();
-        src.buffer = probe.createBuffer(1, 1, 22050);
-        src.connect(probe.destination);
-        src.start(0);
-        contexts.add(probe);
-      } catch (e) {}
+    if (n && window.console) {
+      console.log('[audio-unlock] resumed ' + n + ' of ' + contexts.size);
     }
-    if (window.console) console.log('[audio-unlock] resumeAll n=' + n + ' tracked=' + contexts.size);
   }
 
   for (const ev of ['pointerdown', 'touchstart', 'keydown', 'mousedown', 'click']) {
