@@ -359,8 +359,8 @@ func _build_pause() -> void:
 func _build_relic() -> void:
 	var page := _new_page(Page.RELIC)
 	var box: VBoxContainer = _shell_box[Page.RELIC]
-	_headline(box, "獲得遺物")
-	_caption(box, "每答對 10 題，從三件中取一件")
+	_headline(box, "選擇打法")
+	_caption(box, "答對 10 題，從三張裡取一張。這一局怎麼跑，由這些牌決定。")
 
 	_relic_row = HBoxContainer.new()
 	_relic_row.alignment = BoxContainer.ALIGNMENT_CENTER

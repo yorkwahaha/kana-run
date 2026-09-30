@@ -139,6 +139,9 @@ var _damage_flash := 0.0
 var _good_flash := 0.0
 var _relics: Dictionary = {}
 var _next_relic_at := RELIC_EVERY
+var _hits := 0
+var _pending_relic := false
+var _slip_next := false
 var _title_orbit := 0.0
 
 var _autoplay := false
@@ -547,11 +550,14 @@ func _start_run() -> void:
 	_runner.visible = true
 	_runner.reset()
 
-	_stamina_cap = STAMINA_MAX + 40.0 * _relic_count("taiwa")
+	_stamina_cap = STAMINA_MAX
 	_stamina = _stamina_cap
 	_score = 0
 	_chain = 0
 	_best_chain = 0
+	_hits = 0
+	_pending_relic = false
+	_slip_next = false
 	_overdrive = false
 	_overdrive_t = 0.0
 	_od_charge = 0.0
@@ -562,7 +568,8 @@ func _start_run() -> void:
 	_resolved = 0
 	_relics = {}
 	if _debug_relics:
-		_relics = {"muga": 1, "taiwa": 2, "baigeki": 1, "denpatsu": 1}
+		_relics = {"hayate": 1, "teppeki": 1, "baigeki": 1, "issen": 1}
+	_refresh_stamina_cap()
 	_next_relic_at = RELIC_EVERY
 	_lane = 1
 	_duck_timer = 0.0
@@ -933,7 +940,12 @@ func _current_speed() -> float:
 	var base := lerpf(SPEED_MIN, SPEED_MAX * 0.92, heat)
 	if _zone >= ZONES.size() - 1:
 		base = maxf(base, SPEED_MAX * 0.78)
-	var v := base * (1.0 + 0.15 * _relic_count("baigeki"))
+	var v := base
+	if _relic_count("baigeki") > 0:
+		v *= 1.12
+	if _relic_count("hayate") > 0:
+		# 每 4 連再快一截，16 連封頂。斷連段時 _chain 歸零，這段加成自己消失。
+		v *= 1.0 + 0.08 * float(mini(_chain / 4, 4))
 	if _sprint > 0.0:
 		v *= SPRINT_BOOST
 	if _overdrive:
@@ -1119,14 +1131,9 @@ func _tick_relic_status() -> void:
 	_relic_status_t = 0.16
 	_hud.set_relic_status({
 		"stamina_cap": int(_stamina_cap),
-		"heal": int(STAMINA_HEAL * (1.0 + 0.5 * _relic_count("juugo"))),
-		"mult": pow(1.55, _relic_count("baigeki")),
-		"speed_bonus": 0.15 * _relic_count("baigeki"),
-		"perfect_ms": int(450.0 * (1.0 + 0.45 * _relic_count("denpatsu"))),
-		"combo_top": 3.0 + 1.0 * _relic_count("mugen"),
-		"drain_cut": 0.35 * _relic_count("jikyuu"),
-		"gems": _gem_count,
-		"muga_on": _relic_count("muga") > 0,
+		"hayate_pct": 8 * mini(_chain / 4, 4) if _relic_count("hayate") > 0 else 0,
+		"od_need": int(_od_need()),
+		"slip": _slip_next,
 	})
 
 
@@ -1221,7 +1228,7 @@ func _warmup() -> void:
 	_barrier.position.z = -30.0
 	_hud.set_barrier_hint(_barrier_blocked(0))
 	_hud.show_explain({"kana": "あ", "romaji": "a", "lines": ["あ行母音"], "confusions": []})
-	_hud.set_relics({"muga": 1, "baigeki": 1})
+	_hud.set_relics({"hayate": 1, "baigeki": 1})
 	_hud.set_relic_status({"stamina_cap": 100, "mult": 1.0})
 	_hud.banner_zone("第一區", "草木", "先熟悉節奏")
 	await get_tree().process_frame
@@ -1270,12 +1277,14 @@ func _advance_fades(delta: float) -> void:
 func _drain_stamina(dt: float) -> void:
 	# 節奏設計：答對淨賺一點，答錯一次約當 5 題的進帳。
 	# 打得準的人體力會一直是滿的，失手 5～6 次就會出局。
-	var rate := (1.7 + _speed * 0.05) * (1.0 - 0.35 * _relic_count("jikyuu"))
-	# 極限的體力代價：貪 ×3 的同時血也在掉。
+	var rate := 1.7 + _speed * 0.05
+	if _relic_count("jikyuu") > 0:
+		rate *= 0.70
+	# 極限的體力代價：貪分數的同時血也在掉。
 	# 這個交換是極限的全部重點 —— 沒有代價就只是白送分數，
 	# 玩家會無腦待著，不會有「再撐三題」的念頭。
 	if _overdrive:
-		rate *= OVERDRIVE_DRAIN
+		rate *= _od_drain()
 	_stamina = maxf(0.0, _stamina - rate * dt)
 
 
@@ -1406,29 +1415,49 @@ func _resolve_impact_body() -> void:
 
 
 func _grade(ms: float) -> String:
-	var perfect := 450.0 * (1.0 + 0.45 * _relic_count("denpatsu"))
-	var great := 900.0 * (1.0 + 0.25 * _relic_count("denpatsu"))
-	if ms <= perfect:
+	if ms <= 450.0:
 		return "perfect"
-	if ms <= great:
+	if ms <= 900.0:
 		return "great"
 	return "good"
 
 
 func _combo_mult() -> float:
-	var top := 3.0 + 1.0 * _relic_count("mugen")
-	# 第三區「神社」的 twist：連段爬得更快，獎勵一路連到底
-	var step := 0.08 * (1.0 + (0.5 * _relic_count("mugen")))
+	var top := 3.0
+	# 第三區「神社」的 twist：連段爬得更快，獎勵一路連到底。
+	# 殘心把這段爬升放慢，換答錯時連段只減半。
+	var step := 0.08
+	if _relic_count("zanshin") > 0:
+		step *= 0.70
 	if _zone_twist() == "combo":
 		step *= 2.0
 	var v := 1.0 + float(_chain) * step
 	if _sprint > 0.0:
 		v *= SPRINT_MULT
 	if _overdrive:
-		v *= OVERDRIVE_MULT
+		v *= _od_score_mult()
 	# 極限要能蓋過連段倍率的天花板，否則倍率封頂之後
-	# 極限的「×3」只是看起來好看，實際上不會比後段多賺
-	return clampf(v, 1.0, top * 2.0 * (OVERDRIVE_MULT if _overdrive else 1.0))
+	# 極限的加分只是看起來好看，實際上不會比後段多賺。
+	return clampf(v, 1.0, top * 2.0 * (_od_score_mult() if _overdrive else 1.0))
+
+
+func _od_need() -> float:
+	return 5.0 if _relic_count("bakuso") > 0 else OVERDRIVE_NEED
+
+
+func _od_time() -> float:
+	return OVERDRIVE_TIME + (2.0 if _relic_count("bakuso") > 0 else 0.0)
+
+
+func _od_drain() -> float:
+	var rate := OVERDRIVE_DRAIN
+	if _relic_count("bakuso") > 0:
+		rate *= 1.35
+	return rate
+
+
+func _od_score_mult() -> float:
+	return 2.0 if _relic_count("jikyuu") > 0 else OVERDRIVE_MULT
 
 
 func _zone_twist() -> String:
@@ -1441,7 +1470,7 @@ func _tick_overdrive(delta: float) -> void:
 	if not _overdrive:
 		return
 	_overdrive_t += delta
-	if _overdrive_t >= OVERDRIVE_TIME:
+	if _overdrive_t >= _od_time():
 		_end_overdrive()
 
 
@@ -1449,7 +1478,7 @@ func _note_heat(grade: String) -> void:
 	if _overdrive:
 		return
 	_od_charge += 1.6 if grade == "perfect" else 1.0
-	if _od_charge >= OVERDRIVE_NEED:
+	if _od_charge >= _od_need():
 		_begin_overdrive()
 
 
@@ -1457,7 +1486,7 @@ func _begin_overdrive() -> void:
 	_overdrive = true
 	_overdrive_t = 0.0
 	_od_charge = 0.0
-	_hud.banner("極限　×3", UiKit.GOLD, 1.6)
+	_hud.banner("極限　×%d" % int(_od_score_mult()), UiKit.GOLD, 1.6)
 	_hud.set_overdrive(true)
 	_cam.pulse(1.0)
 	_cam.punch(0.9 * _shake_user)
@@ -1503,13 +1532,27 @@ func _resolve_hit(kana: String, ms: float) -> void:
 	var base := 60.0 + _speed * 1.2
 	var time_bonus: float = {"perfect": 200.0, "great": 120.0, "good": 60.0}.get(grade, 20.0)
 	var gained := int(round((base + time_bonus) * mult))
-	gained = int(round(float(gained) * pow(1.55, _relic_count("baigeki"))))
+	if _relic_count("baigeki") > 0:
+		gained = int(round(float(gained) * 1.6))
+	if _relic_count("teppeki") > 0:
+		gained = int(round(float(gained) * 0.85))
+	if _relic_count("issen") > 0:
+		if grade == "perfect":
+			gained = int(round(float(gained) * 1.8))
+		elif grade != "great":
+			gained = int(round(float(gained) * 0.6))
+	if _slip_next:
+		gained = int(round(float(gained) * 1.5))
+		_slip_next = false
 
 	_score += gained
 	_chain += 1
 	_best_chain = maxi(_best_chain, _chain)
 	_resolved += 1
-	_stamina = minf(_stamina_cap, _stamina + STAMINA_HEAL * (1.0 + 0.5 * _relic_count("juugo")))
+	_hits += 1
+	if _hits % RELIC_EVERY == 0 and _zone < ZONES.size() - 1:
+		_pending_relic = true
+	_stamina = minf(_stamina_cap, _stamina + STAMINA_HEAL)
 	Srs.record(kana, 1, ms)
 	_check_combo_milestone()
 	_check_zone()
@@ -1550,14 +1593,16 @@ func _resolve_miss(kana: String, ms: float) -> void:
 	_resolved += 1
 
 	var penalty := STAMINA_WRONG
-	if _relic_count("taiwa") > 0:
+	if _relic_count("teppeki") > 0:
 		penalty *= 0.5
 	_stamina = maxf(0.0, _stamina - penalty)
 
-	var retry := _relic_count("minkyo") > 0 or int(SaveGame.get_setting("auto_retry", 0)) == 1
+	var retry := int(SaveGame.get_setting("auto_retry", 0)) == 1
 	Srs.record(kana, 0, ms)
 	if retry:
 		Srs.requeue(kana)
+	elif _relic_count("zanshin") > 0:
+		_chain = int(_chain / 2.0)
 	else:
 		_chain = 0
 
@@ -1590,7 +1635,10 @@ func _resolve_miss(kana: String, ms: float) -> void:
 
 func _resolve_dodge(kana: String) -> void:
 	_resolved += 1
-	_stamina = maxf(0.0, _stamina - STAMINA_DODGE)
+	var dodge_cost := 0.0 if _relic_count("suberi") > 0 else STAMINA_DODGE
+	if _relic_count("suberi") > 0:
+		_slip_next = true
+	_stamina = maxf(0.0, _stamina - dodge_cost)
 	Srs.record(kana, 2, 0.0)
 	Srs.requeue(kana)
 	_hud.banner("閃避", UiKit.INK_DIM, 0.5)
@@ -1619,6 +1667,11 @@ func _check_after_gap() -> void:
 		return
 	if Srs.finished():
 		_finish(true)
+		return
+	if _pending_relic:
+		_pending_relic = false
+		if _zone < ZONES.size() - 1 and not RelicPool.roll(_relics).is_empty():
+			_open_relic()
 
 
 func _open_relic() -> void:
@@ -1633,11 +1686,22 @@ func _open_relic() -> void:
 
 
 func _on_relic_chosen(id: String) -> void:
+	if _autoplay:
+		print("[kana-run] relic %s" % id)
 	_relics[id] = _relic_count(id) + 1
+	_refresh_stamina_cap()
 	_hud.set_relics(_relics)
-	for s in _stones:
-		s.always_legible = _relic_count("muga") > 0
 	_ui.hide_all()               # 不論從按鈕還是程式觸發都要收掉面板
+
+
+func _refresh_stamina_cap() -> void:
+	var cap := STAMINA_MAX
+	if _relic_count("teppeki") > 0:
+		cap += 30.0
+	if cap > _stamina_cap:
+		_stamina += cap - _stamina_cap
+	_stamina_cap = cap
+	_stamina = minf(_stamina, _stamina_cap)
 	_track.set_frozen(false)
 	state = State.PLAY
 	_hud.visible = true
@@ -1857,20 +1921,9 @@ func _dump_probe(img: Image) -> void:
 
 # ── 詞彙寶石 ────────────────────────────────────────────────────────────
 func _maybe_spawn_gem() -> void:
+	# 採集牌已從牌池拿掉，寶石不再出現。
 	_gem_active = false
 	_gem.visible = false
-	if _relic_count("sesshu") == 0 or randf() > 0.55:
-		return
-	_gem_word = RelicPool.gem_word(RandomNumberGenerator.new())
-	if _gem_word.is_empty():
-		return
-	_gem_lane = randi() % LANE_COUNT
-	_gem_z = SPAWN_Z * 0.9
-	_gem_t = 0.0
-	_gem_active = true
-	_gem.visible = true
-	_gem.position = Vector3(LANE_X[_gem_lane], 1.1, _gem_z)
-	_gem_label.text = str(_gem_word[0])
 
 
 func _advance_gem(dt: float) -> void:
