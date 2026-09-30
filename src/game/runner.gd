@@ -134,7 +134,7 @@ func stagger() -> void:
 	_duck_target = maxf(_duck_target, 0.55)
 
 
-## 答對、石碑碎開的一瞬間：雙手交叉擋在腦後。
+## 答對、石碑碎開的一瞬間：側過身，雙手交叉擋在臉前。
 func guard() -> void:
 	_guard = GUARD_TIME
 	_stagger = 0.0
