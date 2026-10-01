@@ -43,7 +43,8 @@ const _FLING: Array[Texture2D] = [
 	preload("res://assets/runner/fling_5.png"),
 	preload("res://assets/runner/fling_6.png"),
 ]
-## 撞破石碑時雙手交叉護頭：抬手、停住、再放下。
+## 撞破石碑時雙手交叉護頭：背面視角只看到雙臂抬起，
+## 前臂繞到臉前並被頭部遮住，避免手掌落在鏡頭側／後腦。
 const GUARD_RAISE := 0.20
 const GUARD_HOLD := 0.34
 const GUARD_LOWER := 0.18
@@ -134,7 +135,7 @@ func stagger() -> void:
 	_duck_target = maxf(_duck_target, 0.55)
 
 
-## 答對、石碑碎開的一瞬間：側過身，雙手交叉擋在臉前。
+## 答對、石碑碎開的一瞬間：雙臂抬起，前臂交叉擋在臉前。
 func guard() -> void:
 	_guard = GUARD_TIME
 	_stagger = 0.0
