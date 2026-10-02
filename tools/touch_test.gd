@@ -8,6 +8,17 @@ extends SceneTree
 func _init() -> void:
 	_run.call_deferred()
 
+
+func _find_button(node: Node, text: String) -> Button:
+	for c in node.get_children():
+		if c is Button and (c as Button).text == text:
+			return c as Button
+		var found := _find_button(c, text)
+		if found != null:
+			return found
+	return null
+
+
 func _run() -> void:
 	var hud_script = load("res://src/ui/hud.gd")
 	var hud = hud_script.new()
@@ -60,6 +71,36 @@ func _run() -> void:
 		if r.size.x < 70 or r.size.y < 55:
 			print("   ★ 太小，手指按不到")
 			fails += 1
+
+	# 5. 左／中／右是「絕對跑道」0/1/2，不是相對位移 -1/0/1。
+	# 之前這裡沒有測語意，導致手機的左與中都送到 lane 0、lane 2 永遠選不到。
+	var lanes: Array[int] = []
+	hud.lane_requested.connect(func(lane: int): lanes.append(lane))
+	var lane_buttons := [pad.get_child(0), pad.get_child(2), pad.get_child(3)]
+	for b in lane_buttons:
+		(b as Button).pressed.emit()
+		await process_frame
+	if lanes != [0, 1, 2]:
+		print("   ★ 跑道按鈕訊號錯誤：%s（預期 [0, 1, 2]）" % str(lanes))
+		fails += 1
+	else:
+		print("[touch] 跑道訊號  左/中/右 → 0/1/2")
+
+	# 6. 遊戲中必須有可點的暫停鈕，不能只靠鍵盤 Esc。
+	var pause_button := _find_button(hud, "暫停")
+	var pause_events: Array[bool] = []
+	hud.pause_requested.connect(func(): pause_events.append(true))
+	if pause_button == null:
+		print("   ★ 找不到暫停按鈕")
+		fails += 1
+	else:
+		pause_button.pressed.emit()
+		await process_frame
+		if pause_events.is_empty():
+			print("   ★ 暫停按鈕沒有送出 pause_requested")
+			fails += 1
+		else:
+			print("[touch] 暫停按鈕可用")
 
 	print("[touch] 失敗 %d 項" % fails)
 	quit(0 if fails == 0 else 1)

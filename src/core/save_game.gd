@@ -12,12 +12,14 @@ const DEFAULT_SETTINGS := {
 	"master_volume": 0.9,
 	"sfx_volume": 0.9,
 	"music_volume": 0.38,
+	"bgm_mode": 1,           # 0 = 單曲循環, 1 = 全部輪播
 	"screen_shake": 1.0,
 	"reduce_motion": 0.0,   # 0 = 正常, 1 = 減少閃爍/震動
 	"quality": 1,            # 0 = 流暢, 1 = 平衡, 2 = 精細
 	"katakana": 0,           # 0 = 平假名, 1 = 片假名
 	"show_romaji": 1,
 	"unlock_all": 0,
+	"auto_retry": 0,
 }
 
 var settings: Dictionary = {}

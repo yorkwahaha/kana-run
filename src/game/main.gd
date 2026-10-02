@@ -13,6 +13,8 @@ const LEGIBLE_Z := -24.0
 
 const SPEED_MIN := 13.0
 const SPEED_MAX := 42.0
+const SPEED_KMH_MIN := 40.0
+const SPEED_KMH_MAX := 160.0
 
 const STAMINA_MAX := 100.0
 const STAMINA_HEAL := 8.0
@@ -131,6 +133,14 @@ var _overdrive_t := 0.0
 var _od_charge := 0.0
 var _resolved := 0
 var _speed := SPEED_MIN
+var _momentum_kmh := SPEED_KMH_MIN
+var _wrong_streak := 0
+var _decision_open := false
+var _decision_elapsed := 0.0
+var _decision_ms := -1.0
+var _zanshin_ready := false
+var _zanshin_charge := 0
+var _jikyuu_hits := 0
 var _shake_user := 1.0
 var _reduce_motion := 0.0
 var _time_scale_target := 1.0
@@ -458,6 +468,7 @@ func _connect_ui() -> void:
 	_ui.settings_changed.connect(_apply_settings)
 	_hud.lane_requested.connect(_go_lane)
 	_hud.dodge_requested.connect(_do_dodge)
+	_hud.pause_requested.connect(_pause)
 
 
 # ── 設定 ────────────────────────────────────────────────────────────────
@@ -555,6 +566,14 @@ func _start_run() -> void:
 	_score = 0
 	_chain = 0
 	_best_chain = 0
+	_momentum_kmh = SPEED_KMH_MIN
+	_wrong_streak = 0
+	_decision_open = false
+	_decision_elapsed = 0.0
+	_decision_ms = -1.0
+	_zanshin_ready = false
+	_zanshin_charge = 0
+	_jikyuu_hits = 0
 	_hits = 0
 	_pending_relic = false
 	_slip_next = false
@@ -686,6 +705,9 @@ func _pick_next_wave() -> void:
 	_wave_z = SPAWN_Z
 	_wave_active = true
 	_legible_time = 0.0
+	_decision_open = false
+	_decision_elapsed = 0.0
+	_decision_ms = -1.0
 	_duck_timer = 0.0
 
 	var answers: Array = _question["choices"]
@@ -863,10 +885,11 @@ func _resolve_barrier() -> void:
 		_barrier.mark_hit(lane)
 		_stamina = maxf(0.0, _stamina - 18.0)
 		_chain = 0
+		_momentum_kmh = maxf(SPEED_KMH_MIN, _momentum_kmh - 20.0)
 		_runner.burst()
 		_cam.shake(0.85 * _shake_user, 8.0)
 		_cam.punch(0.9 * _shake_user)
-		_hud.banner("撞到！", Color(1.0, 0.42, 0.42), 0.7)
+		_hud.banner("撞到！　-20 km/h", Color(1.0, 0.42, 0.42), 0.7)
 		_damage_flash = 1.0
 		Sfx.miss()
 
@@ -935,23 +958,23 @@ func _speed01() -> float:
 
 
 func _current_speed() -> float:
-	# 速度跟這一輪打得有多熱走，不跟課表進度走。失手連段歸零，速度就落下來。
-	var heat := clampf(float(_chain) / 16.0, 0.0, 1.0)
-	var base := lerpf(SPEED_MIN, SPEED_MAX * 0.92, heat)
-	if _zone >= ZONES.size() - 1:
-		base = maxf(base, SPEED_MAX * 0.78)
-	var v := base
-	if _relic_count("baigeki") > 0:
-		v *= 1.12
-	if _relic_count("hayate") > 0:
-		# 每 4 連再快一截，16 連封頂。斷連段時 _chain 歸零，這段加成自己消失。
-		v *= 1.0 + 0.08 * float(mini(_chain / 4, 4))
+	# 速度使用獨立動量，不再和 combo 綁死；一次錯誤只失去一段速度。
+	var v := remap(clampf(_momentum_kmh, SPEED_KMH_MIN, SPEED_KMH_MAX),
+		SPEED_KMH_MIN, SPEED_KMH_MAX, SPEED_MIN, SPEED_MAX)
 	if _sprint > 0.0:
 		v *= SPRINT_BOOST
 	if _overdrive:
 		v = maxf(v, SPEED_MAX * 0.72)
 		v *= OVERDRIVE_BOOST
 	return v
+
+
+func _actual_kmh() -> int:
+	return int(round(lerpf(SPEED_KMH_MIN, SPEED_KMH_MAX, _speed01())))
+
+
+func _add_momentum(kmh: float) -> void:
+	_momentum_kmh = clampf(_momentum_kmh + kmh, SPEED_KMH_MIN, SPEED_KMH_MAX)
 
 
 # ── 每幀 ────────────────────────────────────────────────────────────────
@@ -1081,7 +1104,7 @@ func _tick_play(delta: float) -> void:
 
 	_hud.set_stamina(_stamina, _stamina_cap)
 	_hud.set_score(_score)
-	_hud.set_speed_kmh(int(round(40.0 + _speed01() * 120.0)))
+	_hud.set_speed_kmh(_actual_kmh())
 	_hud.set_combo(_combo_mult(), _chain)
 	_tick_relic_status()
 
@@ -1131,9 +1154,9 @@ func _tick_relic_status() -> void:
 	_relic_status_t = 0.16
 	_hud.set_relic_status({
 		"stamina_cap": int(_stamina_cap),
-		"hayate_pct": 8 * mini(_chain / 4, 4) if _relic_count("hayate") > 0 else 0,
 		"od_need": int(_od_need()),
 		"slip": _slip_next,
+		"zanshin_ready": _zanshin_ready,
 	})
 
 
@@ -1279,7 +1302,7 @@ func _drain_stamina(dt: float) -> void:
 	# 打得準的人體力會一直是滿的，失手 5～6 次就會出局。
 	var rate := 1.7 + _speed * 0.05
 	if _relic_count("jikyuu") > 0:
-		rate *= 0.70
+		rate *= 0.85
 	# 極限的體力代價：貪分數的同時血也在掉。
 	# 這個交換是極限的全部重點 —— 沒有代價就只是白送分數，
 	# 玩家會無腦待著，不會有「再撐三題」的念頭。
@@ -1300,7 +1323,13 @@ func _advance_wave(dt: float) -> void:
 
 	if _wave_z < LEGIBLE_Z:
 		_legible_time = 0.0
+		_decision_open = false
 	else:
+		if not _decision_open:
+			_decision_open = true
+			_decision_elapsed = 0.0
+		else:
+			_decision_elapsed += dt
 		_legible_time += dt
 		var remain := clampf(_wave_z / LEGIBLE_Z, 0.0, 1.0)
 		_hud.set_timer(remain, remain < 0.34)
@@ -1310,8 +1339,9 @@ func _advance_wave(dt: float) -> void:
 
 
 func _update_post(delta: float) -> void:
-	_post_mat.set_shader_parameter("speed_blur", _speed01() * 0.30 * (1.0 - _reduce_motion * 0.8))
-	_post_mat.set_shader_parameter("aberration", 1.0 + _speed01() * 2.2)
+	# 題目與石碑保持清楚；高速感交給 FOV、路面 streak 與兩側速度線。
+	_post_mat.set_shader_parameter("speed_blur", _speed01() * 0.16 * (1.0 - _reduce_motion * 0.8))
+	_post_mat.set_shader_parameter("aberration", 0.8 + _speed01() * 1.2)
 	_damage_flash = maxf(0.0, _damage_flash - delta * 2.4)
 	_good_flash = maxf(0.0, _good_flash - delta * 3.0)
 	_post_mat.set_shader_parameter("damage", _damage_flash)
@@ -1369,6 +1399,9 @@ func _go_lane(target: int) -> void:
 	if state != State.PLAY:
 		return
 	var t := clampi(target, 0, LANE_COUNT - 1)
+	if _decision_open and _wave_active and not _obstacle_wave and _decision_ms < 0.0 \
+			and t == int(_question.get("target_index", -1)):
+		_decision_ms = _decision_elapsed * 1000.0
 	if t == _lane:
 		return
 	_lane = t
@@ -1404,7 +1437,8 @@ func _resolve_impact() -> void:
 ## 題目的判定本體，障礙波與一般題目波共用。
 func _resolve_impact_body() -> void:
 	var kana: String = _question["kana"]
-	var ms := _legible_time * 1000.0
+	# 評價看「可讀後多久選定正確跑道」，不再用撞上那刻的跑速反推。
+	var ms := _decision_ms if _decision_ms >= 0.0 else _legible_time * 1000.0
 
 	if _duck_timer > 0.0:
 		_resolve_dodge(kana)
@@ -1425,10 +1459,7 @@ func _grade(ms: float) -> String:
 func _combo_mult() -> float:
 	var top := 3.0
 	# 第三區「神社」的 twist：連段爬得更快，獎勵一路連到底。
-	# 殘心把這段爬升放慢，換答錯時連段只減半。
 	var step := 0.08
-	if _relic_count("zanshin") > 0:
-		step *= 0.70
 	if _zone_twist() == "combo":
 		step *= 2.0
 	var v := 1.0 + float(_chain) * step
@@ -1457,7 +1488,7 @@ func _od_drain() -> float:
 
 
 func _od_score_mult() -> float:
-	return 2.0 if _relic_count("jikyuu") > 0 else OVERDRIVE_MULT
+	return OVERDRIVE_MULT
 
 
 func _zone_twist() -> String:
@@ -1533,20 +1564,42 @@ func _resolve_hit(kana: String, ms: float) -> void:
 	var time_bonus: float = {"perfect": 200.0, "great": 120.0, "good": 60.0}.get(grade, 20.0)
 	var gained := int(round((base + time_bonus) * mult))
 	if _relic_count("baigeki") > 0:
-		gained = int(round(float(gained) * 1.6))
-	if _relic_count("teppeki") > 0:
-		gained = int(round(float(gained) * 0.85))
+		gained = int(round(float(gained) * 1.35))
 	if _relic_count("issen") > 0:
 		if grade == "perfect":
-			gained = int(round(float(gained) * 1.8))
-		elif grade != "great":
-			gained = int(round(float(gained) * 0.6))
+			gained = int(round(float(gained) * 1.5))
 	if _slip_next:
 		gained = int(round(float(gained) * 1.5))
 		_slip_next = false
 
 	_score += gained
 	_chain += 1
+	_wrong_streak = 0
+	var effect_note := ""
+	var accel := 9.0 if grade == "perfect" else (7.0 if grade == "great" else 5.0)
+	if _relic_count("baigeki") > 0 and grade != "good":
+		accel += 5.0
+		effect_note += "　倍率+5"
+	if _relic_count("issen") > 0 and grade == "perfect":
+		accel += 10.0
+		effect_note += "　一閃+10"
+	_add_momentum(accel)
+	if _relic_count("hayate") > 0 and _chain % 4 == 0:
+		_add_momentum(12.0)
+		effect_note += "　疾風+12"
+		_cam.punch(0.7 * _shake_user)
+	if _relic_count("zanshin") > 0 and not _zanshin_ready:
+		_zanshin_charge += 1
+		if _zanshin_charge >= 6:
+			_zanshin_charge = 0
+			_zanshin_ready = true
+			effect_note += "　殘心就緒"
+	if _relic_count("jikyuu") > 0:
+		_jikyuu_hits += 1
+		if _jikyuu_hits >= 5:
+			_jikyuu_hits = 0
+			_stamina = minf(_stamina_cap, _stamina + 15.0)
+			effect_note += "　持久+15體力"
 	_best_chain = maxi(_best_chain, _chain)
 	_resolved += 1
 	_hits += 1
@@ -1567,15 +1620,13 @@ func _resolve_hit(kana: String, ms: float) -> void:
 	match grade:
 		"perfect":
 			Sfx.hit_perfect()
-			_hud.banner("PERFECT +%d" % gained, UiKit.GOLD, 0.7)
+			_hud.banner("PERFECT　%.2fs　+%d%s" % [ms / 1000.0, gained, effect_note], UiKit.GOLD, 0.7)
 		"great":
 			Sfx.hit_good()
-			_hud.banner("GREAT +%d" % gained, UiKit.JADE, 0.65)
+			_hud.banner("GREAT　%.2fs　+%d%s" % [ms / 1000.0, gained, effect_note], UiKit.JADE, 0.65)
 		_:
 			Sfx.hit_good()
-			# 原本只顯示加分，玩家看不到其實有第三級評價。
-			# 三級都秀出來，PERFECT / GREAT 才有存在意義。
-			_hud.banner("GOOD +%d" % gained, Color(0.72, 0.78, 0.92), 0.6)
+			_hud.banner("GOOD　%.2fs　+%d%s" % [ms / 1000.0, gained, effect_note], Color(0.72, 0.78, 0.92), 0.6)
 
 	_hud.set_question(_question, true)
 	_after_resolve(stone, 0.30)
@@ -1598,13 +1649,33 @@ func _resolve_miss(kana: String, ms: float) -> void:
 	_stamina = maxf(0.0, _stamina - penalty)
 
 	var retry := int(SaveGame.get_setting("auto_retry", 0)) == 1
+	var zanshin_guard := _relic_count("zanshin") > 0 and _zanshin_ready
 	Srs.record(kana, 0, ms)
 	if retry:
 		Srs.requeue(kana)
-	elif _relic_count("zanshin") > 0:
+	elif zanshin_guard:
 		_chain = int(_chain / 2.0)
 	else:
 		_chain = 0
+
+	var before_kmh := _momentum_kmh
+	var speed_loss := 0.0
+	if zanshin_guard:
+		_zanshin_ready = false
+		_zanshin_charge = 0
+		_momentum_kmh = maxf(SPEED_KMH_MIN, _momentum_kmh - 8.0)
+	else:
+		_wrong_streak += 1
+		if _wrong_streak >= 3:
+			_momentum_kmh = SPEED_KMH_MIN
+		else:
+			var requested_loss := 20.0 if _wrong_streak == 1 else 50.0
+			if _relic_count("teppeki") > 0:
+				requested_loss *= 0.5
+			if _relic_count("baigeki") > 0:
+				requested_loss *= 1.35
+			_momentum_kmh = maxf(SPEED_KMH_MIN, _momentum_kmh - requested_loss)
+	speed_loss = maxf(0.0, before_kmh - _momentum_kmh)
 
 	_od_charge = 0.0
 	Sfx.miss()
@@ -1624,7 +1695,17 @@ func _resolve_miss(kana: String, ms: float) -> void:
 	var choices: Array = _question.get("choices", [])
 	var ti := int(_question.get("target_index", 0))
 	var shown := str(choices[ti]) if ti >= 0 and ti < choices.size() else ""
-	_hud.banner("正解　%s" % shown, Color(1.0, 0.45, 0.42), 0.55)
+	if zanshin_guard:
+		_hud.banner("正解　%s　·　殘心守住動量 (-%d km/h)" % [shown, int(round(speed_loss))],
+			Color(0.70, 0.60, 1.0), 0.7)
+	elif _wrong_streak >= 3:
+		_hud.banner("正解　%s　·　三連錯，速度回到 %d" % [shown, int(SPEED_KMH_MIN)],
+			Color(1.0, 0.45, 0.42), 0.75)
+	elif speed_loss > 0.0:
+		_hud.banner("正解　%s　·　失速 -%d km/h" % [shown, int(round(speed_loss))],
+			Color(1.0, 0.45, 0.42), 0.65)
+	else:
+		_hud.banner("正解　%s　·　速度已在最低" % shown, Color(1.0, 0.45, 0.42), 0.6)
 
 	_after_resolve(null, 0.40)
 	_time_scale_target = 1.0
@@ -1635,13 +1716,15 @@ func _resolve_miss(kana: String, ms: float) -> void:
 
 func _resolve_dodge(kana: String) -> void:
 	_resolved += 1
+	_wrong_streak = 0
 	var dodge_cost := 0.0 if _relic_count("suberi") > 0 else STAMINA_DODGE
 	if _relic_count("suberi") > 0:
 		_slip_next = true
+		_add_momentum(15.0)
 	_stamina = maxf(0.0, _stamina - dodge_cost)
 	Srs.record(kana, 2, 0.0)
 	Srs.requeue(kana)
-	_hud.banner("閃避", UiKit.INK_DIM, 0.5)
+	_hud.banner("閃避　+15 km/h" if _relic_count("suberi") > 0 else "閃避", UiKit.INK_DIM, 0.5)
 	_cam.punch(0.6 * _shake_user)
 	_after_resolve(null, 0.1)
 	_gap = 0.36
@@ -1689,6 +1772,9 @@ func _on_relic_chosen(id: String) -> void:
 	if _autoplay:
 		print("[kana-run] relic %s" % id)
 	_relics[id] = _relic_count(id) + 1
+	if id == "zanshin":
+		_zanshin_ready = true
+		_zanshin_charge = 0
 	_refresh_stamina_cap()
 	_hud.set_relics(_relics)
 	_ui.hide_all()               # 不論從按鈕還是程式觸發都要收掉面板

@@ -43,19 +43,17 @@ const _FLING: Array[Texture2D] = [
 	preload("res://assets/runner/fling_5.png"),
 	preload("res://assets/runner/fling_6.png"),
 ]
-## 撞破石碑時雙手交叉護頭：背面視角只看到雙臂抬起，
-## 前臂繞到臉前並被頭部遮住，避免手掌落在鏡頭側／後腦。
+## 撞破石碑時的護頭序列。
+## guard_3~5 的來源圖會把手掌明顯畫在後腦兩側；從背面看像「抱頭」而不是護臉。
+## 暫時只用 0~2 的抬臂/交叉過渡，避免錯誤姿勢長時間停在撞擊畫面上。
 const GUARD_RAISE := 0.20
-const GUARD_HOLD := 0.34
+const GUARD_HOLD := 0.16
 const GUARD_LOWER := 0.18
 const GUARD_TIME := GUARD_RAISE + GUARD_HOLD + GUARD_LOWER
 const _GUARD: Array[Texture2D] = [
 	preload("res://assets/runner/guard_0.png"),
 	preload("res://assets/runner/guard_1.png"),
 	preload("res://assets/runner/guard_2.png"),
-	preload("res://assets/runner/guard_3.png"),
-	preload("res://assets/runner/guard_4.png"),
-	preload("res://assets/runner/guard_5.png"),
 ]
 
 var speed01 := 0.0

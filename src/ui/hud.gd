@@ -7,6 +7,10 @@ extends Control
 const LANE_X := [-2.7, 0.0, 2.7]
 const EXPLAIN_LIFE := 2.4        ## 錯題卡停留秒數
 
+signal lane_requested(lane: int)
+signal dodge_requested
+signal pause_requested
+
 var _root: Control
 var _q_card: PanelContainer
 var _q_main: Label
@@ -123,7 +127,7 @@ func _build_question() -> void:
 
 	# 新手提示：三級評價怎麼來的
 	_grade_hint = UiKit.label(
-		"答對時反應越快評價越高　·　PERFECT ＞ GREAT ＞ GOOD",
+		"選定正確跑道：0.45 秒內 PERFECT　·　0.90 秒內 GREAT　·　其後 GOOD",
 		14, Color(0.78, 0.82, 0.95, 0.85))
 	_grade_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_grade_hint.visible = false
@@ -218,6 +222,13 @@ func _build_top_right() -> void:
 	_speed = UiKit.label("", 15, UiKit.INK_DIM)
 	_speed.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	box.add_child(_speed)
+
+	var pause := UiKit.button("暫停", UiKit.EDGE)
+	pause.custom_minimum_size = Vector2(104, 36)
+	pause.size_flags_horizontal = Control.SIZE_SHRINK_END
+	pause.focus_mode = Control.FOCUS_NONE
+	pause.pressed.connect(func(): Sfx.ui_tap(); pause_requested.emit())
+	box.add_child(pause)
 
 
 func _build_bottom() -> void:
@@ -518,7 +529,7 @@ func _build_touch_pad() -> void:
 	var dodge_tint := Color(0.95, 0.72, 0.38, 0.45)
 
 	var left: Button = mk.call("左", ink)
-	left.pressed.connect(func(): _emit_lane(-1))
+	left.pressed.connect(func(): _emit_lane(0))
 	_touch_pad.add_child(left)
 
 	var duck: Button = mk.call("閃", dodge_tint)
@@ -526,11 +537,11 @@ func _build_touch_pad() -> void:
 	_touch_pad.add_child(duck)
 
 	var mid: Button = mk.call("中", ink)
-	mid.pressed.connect(func(): _emit_lane(0))
+	mid.pressed.connect(func(): _emit_lane(1))
 	_touch_pad.add_child(mid)
 
 	var right: Button = mk.call("右", ink)
-	right.pressed.connect(func(): _emit_lane(1))
+	right.pressed.connect(func(): _emit_lane(2))
 	_touch_pad.add_child(right)
 
 	_layout_touch_pad()
@@ -562,10 +573,6 @@ func _layout_touch_pad() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED and _touch_pad != null:
 		_layout_touch_pad()
-
-
-signal lane_requested(lane: int)
-signal dodge_requested
 
 
 func _emit_lane(l: int) -> void:

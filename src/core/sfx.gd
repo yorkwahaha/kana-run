@@ -46,7 +46,7 @@ var _music_sig := ""
 var _sfx_sig := ""
 var _silent_report := true
 var _last_sfx_report := ""
-var _bgm_mode := 0            ## 0 = 單曲循環, 1 = 全部輪播
+var _bgm_mode := 1            ## 0 = 單曲循環, 1 = 全部輪播；新玩家預設輪播
 
 # ── 配樂狀態 ────────────────────────────────────────────────────────────
 var music_on := true
@@ -235,7 +235,7 @@ func _ready() -> void:
 	_build_sfx_bank()
 	_start_wind()
 	_install_web_audio_unlock()
-	_bgm_mode = int(SaveGame.get_setting("bgm_mode", 0))
+	_bgm_mode = int(SaveGame.get_setting("bgm_mode", 1))
 	_load_external()
 
 

@@ -157,7 +157,7 @@ func _build_title() -> void:
 	var brief := _caption(box,
 		"前方三座石碑，只有刻著正確假名的那座可以撞破。\n" +
 		"題目不只考背誦 —— 越往後越考詞彙、混淆字與反應速度。\n" +
-		"反應越快評價越高：PERFECT ＞ GREAT ＞ GOOD。\n" +
+		"石碑進入可讀範圍後，越早選定正確跑道評價越高：0.45 秒內 PERFECT、0.90 秒內 GREAT，其後 GOOD。\n" +
 		"來不及就按 ↓ 棄題（那一題稍後還會再考），體力換取思考的餘裕。")
 	brief.add_theme_font_size_override("font_size", 18)
 
@@ -396,6 +396,10 @@ func _relic_card(def: Dictionary, owned: Dictionary) -> PanelContainer:
 	var name := UiKit.label(def["name"], 30, UiKit.INK, true)
 	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(name)
+
+	var kind := UiKit.label(str(def.get("type", "")), 13, accent)
+	kind.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(kind)
 
 	var have := int(owned.get(def["id"], 0))
 	# 固定高度：不論有沒有持有，三張卡的按鈕都會在同一條線上
