@@ -61,7 +61,7 @@ var speed01 := 0.0
 var _rig: Node3D
 var _billboard: MeshInstance3D
 var _shadow: MeshInstance3D
-var _mat: StandardMaterial3D
+var _mat: ShaderMaterial
 var _tex: Texture2D
 
 var _phase := 0.0
@@ -99,12 +99,10 @@ func _build() -> void:
 
 	var quad := QuadMesh.new()
 	quad.size = Vector2(FIG_H * aspect, FIG_H)
-	_mat = StandardMaterial3D.new()
-	_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	_mat.albedo_texture = tex
+	# 不打光的立繪。邊緣冷色讓剪影從夜色裡分離，場景光不會洗到身上。
+	_mat = ShaderMaterial.new()
+	_mat.shader = preload("res://src/shaders/runner_rim.gdshader")
+	_mat.set_shader_parameter("tex", tex)
 
 	_billboard = MeshInstance3D.new()
 	_billboard.mesh = quad
@@ -280,7 +278,7 @@ func _set_tex(tex: Texture2D) -> void:
 	if _mat == null or tex == _tex:
 		return
 	_tex = tex
-	_mat.albedo_texture = tex
+	_mat.set_shader_parameter("tex", tex)
 
 
 func _scan_lowest(r: Node) -> void:

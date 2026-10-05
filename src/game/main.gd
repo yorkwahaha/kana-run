@@ -17,26 +17,38 @@ const SPEED_KMH_MIN := 40.0
 const SPEED_KMH_MAX := 160.0
 
 const STAMINA_MAX := 100.0
-const STAMINA_HEAL := 8.0
-const STAMINA_WRONG := 12.0
-const STAMINA_DODGE := 9.0
+const STAMINA_HEAL := 5.0            ## GREAT / GOOD 回的體力
+const STAMINA_HEAL_PERFECT := 8.0    ## PERFECT 回的體力
+const STAMINA_WRONG := 16.0
+const STAMINA_DODGE := 12.0
+const STAMINA_BARRIER_DUCK := 9.0
+const STAMINA_BARRIER_CRASH := 24.0
 
 const RELIC_EVERY := 10
 const DODGE_WINDOW := 0.52
 const OBSTACLE_EVERY := 5       ## 每幾題插入一個橫桿障礙
 
 # ── 極限（OVERDRIVE）─────────────────────────────────────────────────────
-## 熱度灌滿就爆開約七秒：分數 ×3、速度墊高、體力掉更快，時間到自己結束。
+## 熱度灌滿、而且體力還夠，才爆開約七秒：分數 ×3、速度墊高。
+## 爆發當下先扣一筆，期間每秒再扣；時間到自己結束。
+## 體力不夠就先待命，避免一進極限就倒。平常奔跑不扣血。
 ## 答錯會把還沒爆開的熱度清掉；已經在跑的那一波會自己走完。
 const OVERDRIVE_NEED := 8.0       ## 累積這麼多「熱度」就爆開一波極限
-const OVERDRIVE_TIME := 7.0       ## 極限持續秒數，期間體力掉得更快
+const OVERDRIVE_TIME := 7.0       ## 極限持續秒數
 const OVERDRIVE_MULT := 3.0
 ## 極限下石碑的閱讀時間倍率。越小 = 必須更早認出來，壓力越大。
 const OVERDRIVE_LEGIBLE := 0.55
-## 極限下的體力消耗倍率。
-const OVERDRIVE_DRAIN := 1.9
+const OVERDRIVE_COST := 20.0      ## 爆發當下扣的體力
+const OVERDRIVE_DRAIN := 5.0      ## 極限期間每秒再扣的體力
+const OVERDRIVE_MIN_STAMINA := 30.0
 ## 極限時速度加成，讓畫面本身也跟著興奮起來。
 const OVERDRIVE_BOOST := 1.18
+
+## 驟死：90 秒、答錯或撞桿就結束。沒有體力條。
+## 起跑就在 96 km/h，題列長過時鐘，終點是時間不是 42 題。
+const SUDDEN_TIME := 90.0
+const SUDDEN_BEATS := 80
+const SUDDEN_START_KMH := 96.0
 
 # ── 分區 ────────────────────────────────────────────────────────────────
 ## 為什麼要分區：原本一局 46 題是「一直加速的斜坡」，除了難度上升
@@ -153,6 +165,15 @@ var _hits := 0
 var _pending_relic := false
 var _slip_next := false
 var _title_orbit := 0.0
+var _pause_lock := false       ## 暫停選單用 Esc 恢復的那一幀，不要立刻再暫停
+var _listening_played := false
+var _open_lanes: Array = []
+var _od_wait_noted := false
+var _sudden := false
+var _sudden_left := SUDDEN_TIME
+var _best_before := 0
+var _prev_pace: Array = [-1, -1, -1]
+var _run_pace: Array = [-1, -1, -1]
 
 var _autoplay := false
 var _autoplay_sabotage := true
@@ -252,6 +273,7 @@ func _open_test_page() -> void:
 				"cleared": true, "score": 24680, "correct": 44, "wrong": 2,
 				"dodged": 0, "answered": 46, "best_combo": 31,
 				"weakest": Srs.weakest(10), "slowest": Srs.slowest(4),
+				"grade": "A", "record_line": "差 1320 分　·　按 R 再跑",
 			})
 		_:
 			pass
@@ -268,6 +290,8 @@ func _parse_test_args() -> void:
 		elif arg == "--perfect":
 			_autoplay = true
 			_autoplay_sabotage = false
+		elif arg == "--sudden":
+			_sudden = true
 		elif arg == "--miss":
 			# 每題都故意撞錯，用來檢查錯題卡的排版與自動消失
 			_autoplay = true
@@ -461,6 +485,7 @@ func _build_ui() -> void:
 
 func _connect_ui() -> void:
 	_ui.start_requested.connect(_on_start)
+	_ui.sudden_requested.connect(_on_sudden)
 	_ui.resume_requested.connect(_on_resume)
 	_ui.restart_requested.connect(_on_restart)
 	_ui.quit_to_title.connect(_enter_title)
@@ -485,6 +510,7 @@ func _apply_settings() -> void:
 # ── 狀態切換 ────────────────────────────────────────────────────────────
 func _enter_title() -> void:
 	state = State.TITLE
+	_sudden = false
 	get_tree().paused = false
 	Engine.time_scale = 1.0
 	_hud.visible = false
@@ -516,7 +542,15 @@ func _start_bgm() -> void:
 
 
 func _on_start(kinds: Array) -> void:
+	_sudden = false
 	unit_kinds = kinds.duplicate() if not kinds.is_empty() else _tonight_kinds()
+	_start_run()
+
+
+## 標題上的第二顆鈕。R 重開留在同一個模式，回到標題才清掉。
+func _on_sudden() -> void:
+	_sudden = true
+	unit_kinds = _tonight_kinds()
 	_start_run()
 
 
@@ -566,7 +600,11 @@ func _start_run() -> void:
 	_score = 0
 	_chain = 0
 	_best_chain = 0
-	_momentum_kmh = SPEED_KMH_MIN
+	_sudden_left = SUDDEN_TIME
+	_momentum_kmh = SUDDEN_START_KMH if _sudden else SPEED_KMH_MIN
+	_best_before = SaveGame.best_score(_score_key())
+	_prev_pace = SaveGame.pace_marks(_pace_key())
+	_run_pace = [-1, -1, -1]
 	_wrong_streak = 0
 	_decision_open = false
 	_decision_elapsed = 0.0
@@ -577,6 +615,10 @@ func _start_run() -> void:
 	_hits = 0
 	_pending_relic = false
 	_slip_next = false
+	_pause_lock = false
+	_listening_played = false
+	_open_lanes.clear()
+	_od_wait_noted = false
 	_overdrive = false
 	_overdrive_t = 0.0
 	_od_charge = 0.0
@@ -622,17 +664,22 @@ func _start_run() -> void:
 	_fades.clear()
 	for s in _stones:
 		s.clear()
+		s.set_legible_window(1.0)
 
 	_cam.reset()
 	_track.reset()
 	_track.set_frozen(false)
-	Srs.build_queue(unit_kinds)
+	Srs.build_queue(unit_kinds, SUDDEN_BEATS if _sudden else -1)
 	_apply_theme(int(unit_kinds[0]))
-	_hud.set_unit(_unit_label())
+	_hud.set_unit(_unit_label() if not _sudden else "90 秒驟死")
 	_hud.set_relics(_relics)
 	_hud.set_progress(0, Srs.total_count())
 	_hud.set_score(0)
-	_hud.set_stamina(_stamina, _stamina_cap)
+	_hud.set_run_mode(_sudden)
+	if _sudden:
+		_hud.set_clock(_sudden_left, SUDDEN_TIME)
+	else:
+		_hud.set_stamina(_stamina, _stamina_cap)
 	_hud.set_timer(1.0)
 	_hud.set_question({
 		"prompt": "準備",
@@ -651,6 +698,9 @@ func _on_resume() -> void:
 	get_tree().paused = false
 	_ui.hide_all()
 	Engine.time_scale = 1.0
+	# Esc 的 just_pressed 會活過整個這一幀。恢復發生在 _unhandled_input，
+	# 同一幀稍後的 _handle_input 還看得到它，不鎖住就會立刻再暫停。
+	_pause_lock = true
 
 
 func _pause() -> void:
@@ -732,9 +782,9 @@ func _pick_next_wave() -> void:
 	_maybe_spawn_gem()
 	_play_question_voice()
 	_obstacle_timer += 1
-	# 極限下石碑一閃就滅：閱讀時間被壓到 55%，
-	# 逼玩家在還沒看清楚就必須決定要不要出手
-	if _overdrive:
+	# 極限下石碑一閃就滅。減少閃爍時不進這個狀態：
+	# 0.176 秒明滅是光敏風險，不能只關螢幕搖晃。
+	if _overdrive and _reduce_motion < 0.5:
 		for s in _stones:
 			s.set_legible_window(OVERDRIVE_LEGIBLE)
 
@@ -747,7 +797,7 @@ func _pick_next_wave() -> void:
 ## 完美跑者每局會因此多錯 5 題。
 ##
 ## 所以障礙波是純粹的「走位 + 可選閃避」節拍：
-##   綠色空道站著直接過（最佳，回復體力）
+##   綠色空道站著直接過（最佳，有分數、不回血）
 ##   紅白條上蹲下也能過，但扣體力、不計分
 ##   紅白條上不蹲 → 撞飛
 ## 結論是閃避不再是「哪條道都能無腦按」，因為留一條空道在等著你換過去。
@@ -760,20 +810,33 @@ func _spawn_obstacle_wave() -> void:
 	_wave_active = true
 	_legible_time = 0.0
 	_duck_timer = 0.0
-	_barrier.setup(_barrier_blocked(_resolved), LANE_X)
+	var mask := _next_barrier_mask()
+	_barrier.setup(mask, LANE_X)
 	_barrier.position.z = _wave_z
 	for s in _stones:
 		s.clear()
 	_hud.set_question(_question, false)
 	_hud.hide_explain()
-	_hud.set_barrier_hint(_barrier_blocked(_resolved))
+	_hud.set_barrier_hint(mask)
 	_hud.set_timer(1.0, false)
 
 
-## 每次挑一組被擋的走道。三條都擋等於沒有選擇，所以固定留一條空的。
-## 用題序當種子，讓同一局的配置固定，除錯時好重現。
+## 暖機與截圖用的固定配置。正式障礙波走 _next_barrier_mask，
+## 不然 (resolved * 7 + 3) % 3 會讓空道永遠是 2,1,0 循環。
 func _barrier_blocked(seed_val: int) -> int:
 	var open_lane := (seed_val * 7 + 3) % LANE_COUNT
+	return _mask_for_open_lane(open_lane)
+
+
+## 一局裡三條空道先各出現一次再重洗，避免背板。
+func _next_barrier_mask() -> int:
+	if _open_lanes.is_empty():
+		_open_lanes = [0, 1, 2]
+		_open_lanes.shuffle()
+	return _mask_for_open_lane(int(_open_lanes.pop_back()))
+
+
+func _mask_for_open_lane(open_lane: int) -> int:
 	var mask := 0
 	for i in LANE_COUNT:
 		if i != open_lane:
@@ -810,13 +873,14 @@ func _apply_zone(show := true) -> void:
 	_fog_target = d["fog"]
 	_fog_density_target = d["density"]
 	_track.set_weather(str(d["twist"]), d["weather"], d["petal"])
+	_track.set_zone(_zone)
 	Sfx.set_weather(str(d["twist"]))
 	# 直接套用，不漸變，方便截圖
 	if _track.env != null:
 		_track.env.fog_light_color = _fog_target
 		_track.env.fog_density = _fog_density_target
 	if show:
-		_hud.banner_zone(str(d["title"]), str(d["place"]), str(d["note"]))
+		_hud.banner_zone(str(d["title"]), str(d["place"]), _pace_line(str(d["note"])))
 		Sfx.zone_change(_zone)
 
 
@@ -864,54 +928,76 @@ func _resolve_barrier() -> void:
 
 	if blocked_here and _duck_timer > 0.0:
 		# 蹲過了，但有代價：扣體力、不計分。閃避不是免費的。
+		# 這不是棄題，不能算進結算的「閃避」。驟死沒有體力，蹲只是過桿。
 		_barrier.mark_cleared(lane)
-		_stamina = maxf(0.0, _stamina - STAMINA_DODGE)
+		_lose_stamina(STAMINA_BARRIER_DUCK)
 		Sfx.dodge()
-		Srs.session_dodged += 1
-		_hud.banner("蹲過了 −%d 體力" % int(STAMINA_DODGE), Color(0.95, 0.70, 0.35), 0.8)
+		if _sudden:
+			_hud.banner("蹲過了", Color(0.95, 0.70, 0.35), 0.8)
+		else:
+			_hud.banner("蹲過了 −%d 體力" % int(STAMINA_BARRIER_DUCK), Color(0.95, 0.70, 0.35), 0.8)
 		_cam.punch(0.5 * _shake_user)
 	elif not blocked_here:
-		# 綠色空道站著直接過 —— 這是最佳解
+		# 綠色空道站著直接過 —— 這是最佳解。給分，不回血，
+		# 不然記熟空道就變成免費補血。
 		_barrier.mark_cleared(lane)
 		_score += int(round(40.0 + _speed * 1.2))
-		_stamina = minf(_stamina_cap, _stamina + 5.0)
 		Sfx.dodge()
-		Srs.session_dodged += 1
-		_hud.banner("通過 +%d 體力" % 5, Color(0.45, 0.95, 0.80), 0.7)
+		_hud.banner("通過", Color(0.45, 0.95, 0.80), 0.7)
 		_cam.punch(0.4 * _shake_user)
 		_cam.shake(0.2 * _shake_user, 3.5)
 	else:
-		# 被擋又沒蹲 → 撞飛
+		# 被擋又沒蹲 → 撞飛。驟死沒有體力可以扣，這一撞就是結束。
 		_barrier.mark_hit(lane)
-		_stamina = maxf(0.0, _stamina - 18.0)
+		_lose_stamina(STAMINA_BARRIER_CRASH)
 		_chain = 0
 		_momentum_kmh = maxf(SPEED_KMH_MIN, _momentum_kmh - 20.0)
 		_runner.burst()
 		_cam.shake(0.85 * _shake_user, 8.0)
 		_cam.punch(0.9 * _shake_user)
-		_hud.banner("撞到！　-20 km/h", Color(1.0, 0.42, 0.42), 0.7)
 		_damage_flash = 1.0
 		Sfx.miss()
+		_duck_timer = 0.0
+		_runner.set_duck(false)
+		_barrier.position.z = -400.0
+		if _sudden:
+			_begin_collapse(false, "斷了", false)
+			return
+		_hud.banner("撞到！　-20 km/h", Color(1.0, 0.42, 0.42), 0.7)
+		if _stamina <= 0.0:
+			_begin_collapse(true)
+			return
+		_gap = 0.44
+		_check_after_gap()
+		return
 
 	_duck_timer = 0.0
 	_runner.set_duck(false)
 	_barrier.position.z = -400.0      # 立刻收掉，別停在畫面上
 	_gap = 0.44
-	if _stamina <= 0.0:
+	if not _sudden and _stamina <= 0.0:
 		_begin_collapse(true)
 		return
 	_check_after_gap()
 
 
-## 題目的語音。聽力題是一個假名；單字題是整詞錄音那一段。
+## 題目的語音。單字題在石碑生成時就播，因為整詞比一題的可讀時間長。
+## 聽力題改到石碑進入可讀範圍才播，見 _play_listening_now。
 func _play_question_voice() -> void:
+	_listening_played = false
 	if _voice_player == null:
-		return
-	if _question.has("audio"):
-		_play_clip(str(_question["audio"]))
 		return
 	if _question.has("word_audio"):
 		_play_word_voice(_question["word_audio"])
+
+
+func _play_listening_now() -> void:
+	if _listening_played or _voice_player == null:
+		return
+	if not _question.has("audio"):
+		return
+	_listening_played = true
+	_play_clip(str(_question["audio"]))
 
 
 func _play_clip(path: String) -> void:
@@ -997,8 +1083,13 @@ func _process(delta: float) -> void:
 		Engine.time_scale = 0.06
 	else:
 		_hitstop_until_ms = 0
+		# delta 已經被 time_scale 乘過。拿它去追 time_scale 自己，
+		# 0.06 回 1.0 會拖成一秒，而且 60Hz 比 120Hz 慢一倍。
+		var real_dt := delta
+		if Engine.time_scale > 0.001:
+			real_dt = delta / Engine.time_scale
 		Engine.time_scale = lerpf(Engine.time_scale, _time_scale_target,
-			clampf(delta * 14.0, 0.0, 1.0))
+			clampf(real_dt * 14.0, 0.0, 1.0))
 		if absf(Engine.time_scale - 1.0) < 0.004:
 			Engine.time_scale = 1.0
 
@@ -1027,10 +1118,10 @@ func _process(delta: float) -> void:
 				if _framestats:
 					print("[frame] total=%d slow(>28ms)=%d slowest=%.1fms" % [
 						_total, _slow_frames, _slowest])
-				print("[kana-run] run finished: score=%d answered=%d/%d correct=%d wrong=%d dodged=%d combo=%d stamina=%.0f" % [
+				print("[kana-run] run finished: score=%d answered=%d/%d correct=%d wrong=%d dodged=%d combo=%d stamina=%.0f mode=%s clock=%.1f" % [
 					_score, Srs.answered_this_run(), Srs.total_count(),
 					Srs.session_correct, Srs.session_wrong, Srs.session_dodged,
-					_best_chain, _stamina])
+					_best_chain, _stamina, "sudden" if _sudden else "standard", _sudden_left])
 				if _watch:
 					print("[watch] missing %d frames total, longest run %d frames" % [_watch_violations, _watch_longest])
 				get_tree().quit()
@@ -1084,14 +1175,19 @@ func _tick_play(delta: float) -> void:
 		if _sprint == 0.0:
 			_hud.clear_sprint()
 	_advance_gem(dt)
-	# 障礙波不扣體力：它本來就是兩組題目之間的喘息，
-	# 若照常扣，額外插入的九次穿越會把體力抽乾（一局 46 題只回 8 次血）。
-	if not _obstacle_wave:
+	# 平常奔跑不扣血。只有極限期間才按秒數掉，高手才會看到這條在動。
+	# 驟死沒有這條：底欄是時鐘，答錯和撞桿才結束。
+	if _sudden:
+		_sudden_left = maxf(0.0, _sudden_left - dt)
+		if _sudden_left <= 0.0:
+			_finish(true)
+			return
+	else:
 		_drain_stamina(dt)
-	if _stamina <= 0.0:
-		_begin_collapse(_debug_fling_pending)
-		_debug_fling_pending = false
-		return
+		if _stamina <= 0.0:
+			_begin_collapse(_debug_fling_pending)
+			_debug_fling_pending = false
+			return
 
 	if _wave_active:
 		_advance_wave(dt)
@@ -1102,7 +1198,10 @@ func _tick_play(delta: float) -> void:
 			if state == State.PLAY:
 				_pick_next_wave()
 
-	_hud.set_stamina(_stamina, _stamina_cap)
+	if _sudden:
+		_hud.set_clock(_sudden_left, SUDDEN_TIME)
+	else:
+		_hud.set_stamina(_stamina, _stamina_cap)
 	_hud.set_score(_score)
 	_hud.set_speed_kmh(_actual_kmh())
 	_hud.set_combo(_combo_mult(), _chain)
@@ -1165,7 +1264,7 @@ func _tick_relic_status() -> void:
 ##
 ## flung=true 代表「是撞到沒體力」而不是慢慢耗盡：
 ## 角色會被撞飛出去，趴在地上。
-func _begin_collapse(flung := false) -> void:
+func _begin_collapse(flung := false, banner_text := "", play_sfx := true) -> void:
 	if state != State.PLAY:
 		return
 	state = State.COLLAPSE
@@ -1194,15 +1293,16 @@ func _begin_collapse(flung := false) -> void:
 	# 被撞飛時先不要推近鏡頭 —— 鏡頭一推近，「往前飛出去」就變成
 	# 「在原地倒下」，反而看不出被撞。落地之後再推近看趴著的姿勢。
 	_cam.set_dolly(not flung)
-	if flung:
-		_hud.banner("撞飛出去了", UiKit.INK_DIM, 1.4)
+	var text := banner_text
+	if text == "":
+		text = "撞飛出去了" if flung else "體力用盡"
+	_hud.banner(text, UiKit.INK_DIM, 1.4)
+	if play_sfx:
 		Sfx.miss()
+	if flung:
 		_cam.shake(1.0 * _shake_user, 6.0)
 		_cam.punch(1.2 * _shake_user)
 		_damage_flash = 1.0
-	else:
-		_hud.banner("體力用盡", UiKit.INK_DIM, 1.4)
-		Sfx.miss()
 
 
 ## 跪倒動畫約 1.4 秒，跑道同時停下來，之後才進結算
@@ -1298,17 +1398,94 @@ func _advance_fades(delta: float) -> void:
 
 
 func _drain_stamina(dt: float) -> void:
-	# 節奏設計：答對淨賺一點，答錯一次約當 5 題的進帳。
-	# 打得準的人體力會一直是滿的，失手 5～6 次就會出局。
-	var rate := 1.7 + _speed * 0.05
-	if _relic_count("jikyuu") > 0:
-		rate *= 0.85
-	# 極限的體力代價：貪分數的同時血也在掉。
-	# 這個交換是極限的全部重點 —— 沒有代價就只是白送分數，
-	# 玩家會無腦待著，不會有「再撐三題」的念頭。
-	if _overdrive:
-		rate *= _od_drain()
-	_stamina = maxf(0.0, _stamina - rate * dt)
+	# 體力是失誤預算，不是跑起來就漏的計時器。
+	# 開局慢速每題淨扣、頂速又永遠回滿，會讓一般人死在第一區、高手完全無視。
+	# 代價改放在答錯、棄題，以及自己點燃的極限上。
+	if _sudden or not _overdrive:
+		return
+	_stamina = maxf(0.0, _stamina - _od_drain() * dt)
+
+
+func _lose_stamina(amount: float) -> void:
+	if _sudden:
+		return
+	_stamina = maxf(0.0, _stamina - amount)
+
+
+func _gain_stamina(amount: float) -> void:
+	if _sudden:
+		return
+	_stamina = minf(_stamina_cap, _stamina + amount)
+
+
+func _pace_key() -> String:
+	return "sudden" if _sudden else "standard"
+
+
+func _score_key() -> String:
+	if _sudden:
+		return "sudden"
+	return str(unit_kinds[0]) if unit_kinds.size() == 1 else "all"
+
+
+## 進第 2／3／4 區時，跟上一局同一格的分數比。第一局那格是 -1，只留風味字。
+func _pace_line(base: String) -> String:
+	if _zone <= 0:
+		return base
+	var slot := _zone - 1
+	if slot >= 3:
+		return base
+	_run_pace[slot] = _score
+	var prev := -1
+	if slot < _prev_pace.size():
+		prev = int(_prev_pace[slot])
+	if prev < 0:
+		return base
+	var delta := _score - prev
+	if delta > 0:
+		return "%s　領先上一局 %d" % [base, delta]
+	if delta < 0:
+		return "%s　落後上一局 %d" % [base, -delta]
+	return "%s　與上一局相同" % base
+
+
+func _record_line() -> String:
+	if _score > _best_before:
+		return "新紀錄"
+	if _best_before > 0:
+		if _score == _best_before:
+			return "追平最佳　·　按 R 再跑"
+		return "差 %d 分　·　按 R 再跑" % (_best_before - _score)
+	return "第一局　·　按 R 再跑"
+
+
+func _letter_grade(cleared: bool) -> String:
+	var wrong := Srs.session_wrong
+	var dodged := Srs.session_dodged
+	var correct := Srs.session_correct
+	var answered := maxi(1, correct + wrong + dodged)
+	var acc := float(correct) / float(answered)
+	if _sudden:
+		if not cleared:
+			return "D" if _best_chain < 8 else "C"
+		if wrong == 0 and dodged == 0:
+			return "S"
+		if acc >= 0.9:
+			return "A"
+		if acc >= 0.75:
+			return "B"
+		return "C"
+	if cleared and wrong == 0 and dodged == 0:
+		return "S"
+	if cleared and acc >= 0.9:
+		return "A"
+	if cleared and acc >= 0.75:
+		return "B"
+	if cleared:
+		return "C"
+	if _zone >= 2:
+		return "C"
+	return "D"
 
 
 func _advance_wave(dt: float) -> void:
@@ -1328,6 +1505,11 @@ func _advance_wave(dt: float) -> void:
 		if not _decision_open:
 			_decision_open = true
 			_decision_elapsed = 0.0
+			# 已經站在正解上 = 可讀的瞬間就決定了。
+			# 不記的話會被當成「用完整段可讀時間」，早站好反而比晚切線分低。
+			if _lane == int(_question.get("target_index", -1)):
+				_decision_ms = 0.0
+			_play_listening_now()
 		else:
 			_decision_elapsed += dt
 		_legible_time += dt
@@ -1353,8 +1535,12 @@ func _update_post(delta: float) -> void:
 # ── 輸入 ────────────────────────────────────────────────────────────────
 func _handle_input() -> void:
 	if Input.is_action_just_pressed("pause"):
+		if _pause_lock:
+			_pause_lock = false
+			return
 		_pause()
 		return
+	_pause_lock = false
 	# R 直接重開由 _process 統一處理（PLAY／COLLAPSE／RESULTS 都吃），
 	# 這裡不再重複判定 —— 同一幀呼叫兩次會讓 _start_run 跑兩遍。
 	if Input.is_action_just_pressed("lane_left"):
@@ -1484,6 +1670,8 @@ func _od_drain() -> float:
 	var rate := OVERDRIVE_DRAIN
 	if _relic_count("bakuso") > 0:
 		rate *= 1.35
+	if _relic_count("jikyuu") > 0:
+		rate *= 0.85
 	return rate
 
 
@@ -1496,7 +1684,7 @@ func _zone_twist() -> String:
 
 
 ## 熱度累滿就爆開固定的幾秒，不是連段卡在 30 才永久加速。
-## 爆開期間體力掉得更快，撐過這段就是這一輪的高潮。
+## 爆開要付體力。撐過這段就是這一輪的高潮。
 func _tick_overdrive(delta: float) -> void:
 	if not _overdrive:
 		return
@@ -1510,13 +1698,30 @@ func _note_heat(grade: String) -> void:
 		return
 	_od_charge += 1.6 if grade == "perfect" else 1.0
 	if _od_charge >= _od_need():
-		_begin_overdrive()
+		_od_charge = _od_need()
+		_try_begin_overdrive()
+
+
+## 熱度滿了也不硬開。體力低於門檻就待命，等回血再爆。
+func _try_begin_overdrive() -> void:
+	if _overdrive or _od_charge < _od_need():
+		_od_wait_noted = false
+		return
+	if not _sudden and _stamina < OVERDRIVE_MIN_STAMINA:
+		if not _od_wait_noted:
+			_od_wait_noted = true
+			_hud.banner("極限就緒　體力不夠", UiKit.GOLD, 0.8)
+		return
+	_od_wait_noted = false
+	_begin_overdrive()
 
 
 func _begin_overdrive() -> void:
 	_overdrive = true
 	_overdrive_t = 0.0
 	_od_charge = 0.0
+	_od_wait_noted = false
+	_lose_stamina(OVERDRIVE_COST)
 	_hud.banner("極限　×%d" % int(_od_score_mult()), UiKit.GOLD, 1.6)
 	_hud.set_overdrive(true)
 	_cam.pulse(1.0)
@@ -1524,6 +1729,9 @@ func _begin_overdrive() -> void:
 	_track.flash_rails()
 	Sfx.set_intensity(1.0)
 	Sfx.hit_perfect()
+	if _reduce_motion < 0.5:
+		for s in _stones:
+			s.set_legible_window(OVERDRIVE_LEGIBLE)
 
 
 func _end_overdrive() -> void:
@@ -1533,6 +1741,9 @@ func _end_overdrive() -> void:
 	_overdrive_t = 0.0
 	_hud.banner("極限結束", UiKit.INK_DIM, 0.9)
 	_hud.set_overdrive(false)
+	# 不回設的話，第一波極限之後每一題的碑面都會繼續以 0.176 秒閃。
+	for s in _stones:
+		s.set_legible_window(1.0)
 
 
 ## 每 10 連段做一次場面：倍率上限體感、光環、路面提示
@@ -1594,18 +1805,19 @@ func _resolve_hit(kana: String, ms: float) -> void:
 			_zanshin_charge = 0
 			_zanshin_ready = true
 			effect_note += "　殘心就緒"
-	if _relic_count("jikyuu") > 0:
+	if _relic_count("jikyuu") > 0 and not _sudden:
 		_jikyuu_hits += 1
 		if _jikyuu_hits >= 5:
 			_jikyuu_hits = 0
-			_stamina = minf(_stamina_cap, _stamina + 15.0)
+			_gain_stamina(15.0)
 			effect_note += "　持久+15體力"
 	_best_chain = maxi(_best_chain, _chain)
 	_resolved += 1
 	_hits += 1
 	if _hits % RELIC_EVERY == 0 and _zone < ZONES.size() - 1:
 		_pending_relic = true
-	_stamina = minf(_stamina_cap, _stamina + STAMINA_HEAL)
+	var heal := STAMINA_HEAL_PERFECT if grade == "perfect" else STAMINA_HEAL
+	_gain_stamina(heal)
 	Srs.record(kana, 1, ms)
 	_check_combo_milestone()
 	_check_zone()
@@ -1646,7 +1858,7 @@ func _resolve_miss(kana: String, ms: float) -> void:
 	var penalty := STAMINA_WRONG
 	if _relic_count("teppeki") > 0:
 		penalty *= 0.5
-	_stamina = maxf(0.0, _stamina - penalty)
+	_lose_stamina(penalty)
 
 	var retry := int(SaveGame.get_setting("auto_retry", 0)) == 1
 	var zanshin_guard := _relic_count("zanshin") > 0 and _zanshin_ready
@@ -1679,22 +1891,27 @@ func _resolve_miss(kana: String, ms: float) -> void:
 
 	_od_charge = 0.0
 	Sfx.miss()
+	# 答錯的停頓就是這 130ms 的打擊停滯。先前把 time_scale 目標設成 0.30
+	# 又在同一個函式末尾設回 1.0，慢動作從來沒有進到下一幀。
 	_hitstop_until_ms = Time.get_ticks_msec() + 130
-	_time_scale_target = 0.30
 	_damage_flash = 1.0
 	_cam.shake(1.15 * _shake_user, 4.2)
 	_cam.punch(-1.1 * _shake_user)
-	# 撞錯的那顆石碑已經砸過來了：如果這一撞直接把體力扣到 0，
-	# 就不該是「慢慢跪下」，而是被撞飛出去趴在地上。
-	if _stamina <= 0.0:
-		_begin_collapse(true)
-		return
-
 	# 正解只閃在畫面上，不開解說卡。下一題已經在來。
 	_hud.hide_explain()
 	var choices: Array = _question.get("choices", [])
 	var ti := int(_question.get("target_index", 0))
 	var shown := str(choices[ti]) if ti >= 0 and ti < choices.size() else ""
+	# 驟死：這一撞就是結束。不扣一條看不見的體力。
+	if _sudden:
+		_check_zone()
+		_begin_collapse(false, "斷了　正解　%s" % shown, false)
+		return
+	# 撞錯的那顆石碑已經砸過來了：如果這一撞直接把體力扣到 0，
+	# 就不該是「慢慢跪下」，而是被撞飛出去趴在地上。
+	if _stamina <= 0.0:
+		_begin_collapse(true)
+		return
 	if zanshin_guard:
 		_hud.banner("正解　%s　·　殘心守住動量 (-%d km/h)" % [shown, int(round(speed_loss))],
 			Color(0.70, 0.60, 1.0), 0.7)
@@ -1707,6 +1924,7 @@ func _resolve_miss(kana: String, ms: float) -> void:
 	else:
 		_hud.banner("正解　%s　·　速度已在最低" % shown, Color(1.0, 0.45, 0.42), 0.6)
 
+	_check_zone()
 	_after_resolve(null, 0.40)
 	_time_scale_target = 1.0
 	_gap = 0.48
@@ -1721,11 +1939,21 @@ func _resolve_dodge(kana: String) -> void:
 	if _relic_count("suberi") > 0:
 		_slip_next = true
 		_add_momentum(15.0)
-	_stamina = maxf(0.0, _stamina - dodge_cost)
+	_lose_stamina(dodge_cost)
+	# 棄題保留連段，但熱度對半。不然不會的題全部蹲掉，熱度還照樣灌滿。
+	# 驟死沒有體力當代價，連段必須斷，否則棄題是免費刷分。
+	if _sudden:
+		_chain = 0
+	_od_charge *= 0.5
 	Srs.record(kana, 2, 0.0)
 	Srs.requeue(kana)
-	_hud.banner("閃避　+15 km/h" if _relic_count("suberi") > 0 else "閃避", UiKit.INK_DIM, 0.5)
+	if _sudden:
+		_hud.banner("閃避　+15 km/h　連段中斷" if _relic_count("suberi") > 0 else "閃避　連段中斷", UiKit.INK_DIM, 0.5)
+	else:
+		_hud.banner("閃避　+15 km/h" if _relic_count("suberi") > 0 else "閃避", UiKit.INK_DIM, 0.5)
 	_cam.punch(0.6 * _shake_user)
+	if _sudden or _stamina > 0.0:
+		_check_zone()
 	_after_resolve(null, 0.1)
 	_gap = 0.36
 
@@ -1745,7 +1973,7 @@ func _after_resolve(hit: Node3D, hit_delay: float) -> void:
 
 
 func _check_after_gap() -> void:
-	if _stamina <= 0.0:
+	if not _sudden and _stamina <= 0.0:
 		_begin_collapse()
 		return
 	if Srs.finished():
@@ -1813,6 +2041,17 @@ func _run_selftest() -> void:
 	for kind in [KanaDB.Kind.SEION, KanaDB.Kind.DAKUON, KanaDB.Kind.YOON, KanaDB.Kind.KATA]:
 		for entry in KanaDB.unit(kind):
 			var kana: String = entry[0]
+			for c in KanaDB.confusion(kana):
+				if str(c) == kana:
+					failures.append("%s: 混淆群包含自己" % kana)
+					break
+				if KanaDB.romaji(str(c)) == "":
+					failures.append("%s: 混淆項沒有讀音 %s" % [kana, str(c)])
+					break
+
+	for kind in [KanaDB.Kind.SEION, KanaDB.Kind.DAKUON, KanaDB.Kind.YOON, KanaDB.Kind.KATA]:
+		for entry in KanaDB.unit(kind):
+			var kana: String = entry[0]
 			for step in 40:
 				var progress := float(step) / 39.0
 				for rep in 6:
@@ -1870,6 +2109,91 @@ func _run_selftest() -> void:
 					var card := Curriculum.explain_card(q)
 					if card["kana"] == "" or (card["lines"] as Array).is_empty():
 						failures.append("%s: 解說卡是空的" % kana)
+
+	var standard_q := Srs.build_queue([KanaDB.Kind.SEION])
+	var sudden_q := Srs.build_queue([KanaDB.Kind.SEION], SUDDEN_BEATS)
+	if standard_q.size() != Srs.RUN_BEATS:
+		failures.append("標準題列長度 %d" % standard_q.size())
+	if sudden_q.size() != SUDDEN_BEATS:
+		failures.append("驟死題列長度 %d" % sudden_q.size())
+
+	Srs.session_correct = 10
+	Srs.session_wrong = 0
+	Srs.session_dodged = 0
+	_sudden = false
+	_zone = 0
+	_best_chain = 0
+	if _letter_grade(true) != "S":
+		failures.append("全對應為 S，得到 %s" % _letter_grade(true))
+	Srs.session_correct = 9
+	Srs.session_wrong = 1
+	if _letter_grade(true) != "A":
+		failures.append("九成應為 A，得到 %s" % _letter_grade(true))
+	Srs.session_correct = 8
+	Srs.session_wrong = 2
+	Srs.session_dodged = 0
+	if _letter_grade(true) != "B":
+		failures.append("八成應為 B，得到 %s" % _letter_grade(true))
+	_zone = 1
+	Srs.session_correct = 4
+	Srs.session_wrong = 4
+	if _letter_grade(false) != "D":
+		failures.append("第一區陣亡應為 D，得到 %s" % _letter_grade(false))
+	_zone = 2
+	if _letter_grade(false) != "C":
+		failures.append("第三區陣亡應為 C，得到 %s" % _letter_grade(false))
+	_sudden = true
+	_best_chain = 3
+	if _letter_grade(false) != "D":
+		failures.append("驟死短連段應為 D，得到 %s" % _letter_grade(false))
+	_best_chain = 10
+	if _letter_grade(false) != "C":
+		failures.append("驟死長連段應為 C，得到 %s" % _letter_grade(false))
+	Srs.session_wrong = 0
+	Srs.session_dodged = 0
+	Srs.session_correct = 20
+	if _letter_grade(true) != "S":
+		failures.append("驟死零失誤應為 S，得到 %s" % _letter_grade(true))
+	_sudden = false
+
+	_zone = 1
+	_score = 500
+	_prev_pace = [400, -1, -1]
+	_run_pace = [-1, -1, -1]
+	var ahead := _pace_line("雨勢加大")
+	if ahead != "雨勢加大　領先上一局 100":
+		failures.append("領先橫幅 %s" % ahead)
+	_score = 250
+	_run_pace = [-1, -1, -1]
+	var behind := _pace_line("雨勢加大")
+	if behind != "雨勢加大　落後上一局 150":
+		failures.append("落後橫幅 %s" % behind)
+	_zone = 0
+	if _pace_line("先熟悉節奏") != "先熟悉節奏":
+		failures.append("第一區不該比上一局")
+	_score = 800
+	_best_before = 1000
+	if _record_line() != "差 200 分　·　按 R 再跑":
+		failures.append("紀錄行 %s" % _record_line())
+	_score = 1200
+	if _record_line() != "新紀錄":
+		failures.append("破紀錄行 %s" % _record_line())
+	_best_before = 0
+	if _record_line() != "新紀錄":
+		failures.append("首局有分應為新紀錄")
+
+	var snap_pace: Variant = SaveGame.data.get("pace", {}).duplicate(true)
+	var snap_best: Variant = (SaveGame.data["best"] as Dictionary).duplicate(true)
+	SaveGame.write_pace("sudden", [11, -1, 33])
+	var got: Array = SaveGame.pace_marks("sudden")
+	if int(got[0]) != 11 or int(got[1]) != -1 or int(got[2]) != 33:
+		failures.append("節奏存檔往返 %s" % str(got))
+	SaveGame.set_last_score("sudden", 77)
+	if SaveGame.last_score("sudden") != 77:
+		failures.append("上一局總分往返")
+	SaveGame.data["pace"] = snap_pace
+	SaveGame.data["best"] = snap_best
+	SaveGame.flush()
 
 	print("[selftest] generated %d questions" % checks)
 	print("[selftest] by type: %s" % str(by_type))
@@ -2046,10 +2370,11 @@ func _finish(cleared: bool) -> void:
 	_gem.visible = false
 	_gem_active = false
 
-	var unit_key: String = str(unit_kinds[0]) if unit_kinds.size() == 1 else "all"
 	if cleared:
-		SaveGame.set_best_score(unit_key, _score)
 		Sfx.fanfare()
+	# 機器人跑分不寫進玩家的上一局。否則完美測試會變成永遠領先的幽靈。
+	if not _autoplay:
+		_commit_run_record()
 	SaveGame.flush()
 
 	_ui.show_results({
@@ -2062,4 +2387,20 @@ func _finish(cleared: bool) -> void:
 		"best_combo": _best_chain,
 		"weakest": Srs.weakest(10),
 		"slowest": Srs.slowest(4),
+		"grade": _letter_grade(cleared),
+		"record_line": _record_line(),
+		"sudden": _sudden,
+		"sudden_timeout": _sudden and _sudden_left <= 0.0,
 	})
+
+
+func _commit_run_record() -> void:
+	var mode := _pace_key()
+	var marks := SaveGame.pace_marks(mode)
+	for i in 3:
+		if i < _run_pace.size() and int(_run_pace[i]) >= 0:
+			marks[i] = int(_run_pace[i])
+	SaveGame.write_pace(mode, marks)
+	SaveGame.set_last_score(mode, _score)
+	if _score > _best_before:
+		SaveGame.set_best_score(_score_key(), _score)

@@ -224,6 +224,7 @@ func setup(text: String, answer: bool, is_kana := true, hint_text := "") -> void
 	_spawn = 0.0
 	_fading = false
 	_fade_t = 0.0
+	_legible_window = 1.0
 	_shattered = false
 	_shove = 0.0
 	_legible_elapsed = 0.0
@@ -445,7 +446,8 @@ func _process(delta: float) -> void:
 	# 滅到 0.42 而不是 0：全黑的那一格在截圖裡會整顆消失，
 	# 而極限的 0.176 秒週期遠小於一題從進場到判定的時間，
 	# 單張截圖抓到全黑不代表玩家看得到全黑。
-	if _legible_window < 1.0:
+	# 減少閃爍時不明滅。極限的 0.176 秒週期比螢幕搖晃更傷。
+	if _legible_window < 1.0 and float(SaveGame.get_setting("reduce_motion", 0.0)) < 0.5:
 		_legible_elapsed += delta
 		var period := maxf(0.32 * _legible_window, 0.16)
 		var ph := fmod(_legible_elapsed, period) / period

@@ -39,7 +39,7 @@ const LIST := [
 	},
 	{
 		"id": "jikyuu", "name": "持久", "icon": "力",
-		"type": "生存", "desc": "奔跑耗體力 −15%；每 5 次答對再回復 15 體力。",
+		"type": "生存", "desc": "極限耗體力 −15%；每 5 次答對再回復 15 體力。",
 		"color": Color(0.70, 0.95, 0.55), "max": 1,
 	},
 	{
@@ -65,7 +65,7 @@ static func status(id: String, _n: int, ctx: Dictionary) -> String:
 		"issen":
 			return "PERFECT ×1.5　+10 km/h"
 		"jikyuu":
-			return "消耗 −15%　5 答回 15"
+			return "極限 −15%　5 答回 15"
 		"suberi":
 			return "下一題 ×1.5" if bool(ctx.get("slip", false)) else "閃避 +15 km/h"
 	return ""

@@ -37,6 +37,9 @@ var _speed: Label
 var _stamina: ProgressBar
 var _stamina_fill: StyleBoxFlat
 var _stamina_txt: Label
+var _stam_label: Label
+var _clock_mode := false
+var _hint_standard := ""
 
 var _banner: Label
 var _zone_title: Label
@@ -248,9 +251,9 @@ func _build_bottom() -> void:
 	var head := HBoxContainer.new()
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(head)
-	var lbl := UiKit.label("奔馳體力", 13, UiKit.INK_DIM)
-	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(lbl)
+	_stam_label = UiKit.label("奔馳體力", 13, UiKit.INK_DIM)
+	_stam_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(_stam_label)
 	_stamina_txt = UiKit.label("100", 13, UiKit.INK_DIM)
 	head.add_child(_stamina_txt)
 
@@ -281,7 +284,8 @@ func _build_bottom() -> void:
 	_relic_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_relic_row)
 
-	_hint = UiKit.label("← → 或 A D 換線　·　↓ 棄題或蹲下　·　1 2 3 直選", 14, Color(0.7, 0.72, 0.85, 0.75))
+	_hint_standard = "← → 或 A D 換線　·　↓ 棄題或蹲下　·　1 2 3 直選"
+	_hint = UiKit.label(_hint_standard, 14, Color(0.7, 0.72, 0.85, 0.75))
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_hint)
 
@@ -320,14 +324,15 @@ func _build_banner() -> void:
 func _build_zone_banner() -> void:
 	_zone_card = ColorRect.new()
 	_zone_card.color = Color(0, 0, 0, 0.45)
-	_zone_card.anchor_left = 0.0
+	# 貼右緣。寫死 952 在不是 1280 寬的視窗會把區段卡推出畫面。
+	_zone_card.anchor_left = 1.0
 	_zone_card.anchor_right = 1.0
 	_zone_card.anchor_top = 0.0
 	_zone_card.anchor_bottom = 0.0
-	_zone_card.offset_left = 952
+	_zone_card.offset_left = -328
 	_zone_card.offset_right = -14
 	_zone_card.offset_top = 114
-	_zone_card.offset_bottom = 224
+	_zone_card.offset_bottom = 248
 	_zone_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_zone_card.modulate.a = 0.0
 	add_child(_zone_card)
@@ -356,8 +361,8 @@ func _build_zone_banner() -> void:
 	_zone_note.anchor_bottom = 0.0
 	_zone_note.offset_left = -322
 	_zone_note.offset_right = -20
-	_zone_note.offset_top = 172
-	_zone_note.offset_bottom = 210
+	_zone_note.offset_top = 166
+	_zone_note.offset_bottom = 238
 	_zone_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_zone_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_zone_note.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
@@ -677,7 +682,17 @@ func set_combo(mult: float, chain: int) -> void:
 		_combo.visible = false
 
 
+func set_run_mode(sudden: bool) -> void:
+	_clock_mode = sudden
+	if _stam_label != null:
+		_stam_label.text = "剩餘時間" if sudden else "奔馳體力"
+	if _hint != null:
+		_hint.text = "← → 換線　·　答錯或撞桿就結束　·　↓ 棄題會斷連段" if sudden else _hint_standard
+
+
 func set_stamina(v: float, max_v: float) -> void:
+	if _clock_mode:
+		return
 	_stamina.max_value = max_v
 	_stamina.value = v
 	var pct := 0.0 if max_v <= 0.0 else v / max_v
@@ -685,6 +700,18 @@ func set_stamina(v: float, max_v: float) -> void:
 	_stamina_fill.bg_color = (
 		UiKit.BLOOD if pct < 0.25 else
 		UiKit.GOLD if pct < 0.55 else
+		UiKit.JADE
+	)
+
+
+func set_clock(remain: float, total: float) -> void:
+	_stamina.max_value = maxf(total, 0.001)
+	_stamina.value = clampf(remain, 0.0, total)
+	var sec := maxi(0, int(ceil(remain - 0.001)))
+	_stamina_txt.text = "%d:%02d" % [int(sec / 60.0), sec % 60]
+	_stamina_fill.bg_color = (
+		UiKit.BLOOD if remain <= 15.0 else
+		UiKit.GOLD if remain <= 30.0 else
 		UiKit.JADE
 	)
 
@@ -815,7 +842,8 @@ func set_barrier_hint(covered: int) -> void:
 	for i in 3:
 		if (covered & (1 << i)) == 0:
 			open_lane = i
-	_q_sub.text = "綠色空道站著直接過　·　紅白條要蹲下（扣體力）"
+	_q_sub.text = "綠色空道站著直接過　·　紅白條要蹲下　·　撞上就結束" if _clock_mode \
+		else "綠色空道站著直接過　·　紅白條要蹲下（扣體力）"
 	_q_kana.visible = false
 	_timer.value = 1.0
 	_open_hint.text = "空道 → 第 %d 道" % (open_lane + 1)

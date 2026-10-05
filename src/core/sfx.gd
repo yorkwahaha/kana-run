@@ -15,7 +15,7 @@ const BUS_SFX := "Sfx"
 ## 使用者可以自己丟音檔進來的位置（見 README）
 const DIR_MUSIC := "res://audio/music/"
 const DIR_SFX := "res://audio/sfx/"
-const AUDIO_EXT := ["ogg", "mp3", "wav", "m4a"]
+const AUDIO_EXT := ["mp3", "ogg", "wav", "m4a"]
 
 # ── 音樂理論 ────────────────────────────────────────────────────────────
 ## D 多利安調式音階，適合神社夜景的東方感又不會太陰暗

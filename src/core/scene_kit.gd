@@ -172,7 +172,8 @@ func slab(size: Vector3, chamfer := 0.04) -> ArrayMesh:
 
 ## 由一條高度剖面生成環形山稜剪影
 func mountain_ring(radius: float, height: float, segments: int, seed: int, jag := 0.35) -> ArrayMesh:
-	var key := "mr_%d_%d_%d" % [radius, height, seed]
+	# 法線改過。舊快取鍵不能沿用，否則這一局還是朝上的死黑楔形。
+	var key := "mr2_%d_%d_%d" % [int(radius), int(height), seed]
 	if _mesh_cache.has(key):
 		return _mesh_cache[key]
 
@@ -212,12 +213,19 @@ func mountain_ring(radius: float, height: float, segments: int, seed: int, jag :
 		var p1 := Vector3(cos(a1) * radius, 0, sin(a1) * radius)
 		var q0 := p0 + Vector3(0, heights[i], 0)
 		var q1 := p1 + Vector3(0, heights[i2], 0)
-		out_v.append(p0); out_n.append(Vector3.UP)
-		out_v.append(q1); out_n.append(Vector3.UP)
-		out_v.append(q0); out_n.append(Vector3.UP)
-		out_v.append(p0); out_n.append(Vector3.UP)
-		out_v.append(q1); out_n.append(Vector3.UP)
-		out_v.append(p1); out_n.append(Vector3.UP)
+		# 鏡頭在環裡面。這個繞序的法線朝圓心，側面才吃得到側光。
+		# 再加一點朝上，稜線才有天光，不會整圈都是剪影黑。
+		var face := (q1 - p0).cross(q0 - p0)
+		if face.length_squared() < 0.0001:
+			face = Vector3.UP
+		else:
+			face = (face.normalized() + Vector3.UP * 0.28).normalized()
+		out_v.append(p0); out_n.append(face)
+		out_v.append(q1); out_n.append(face)
+		out_v.append(q0); out_n.append(face)
+		out_v.append(p0); out_n.append(face)
+		out_v.append(q1); out_n.append(face)
+		out_v.append(p1); out_n.append(face)
 
 	arrays[Mesh.ARRAY_VERTEX] = out_v
 	arrays[Mesh.ARRAY_NORMAL] = out_n
@@ -340,11 +348,11 @@ func build_environment(quality: int) -> Environment:
 	env.tonemap_white = 3.2
 
 	env.glow_enabled = true
-	env.glow_intensity = 0.70
+	env.glow_intensity = 0.76
 	env.glow_strength = 1.0
-	env.glow_bloom = 0.04
+	env.glow_bloom = 0.07
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	env.glow_hdr_threshold = 1.25
+	env.glow_hdr_threshold = 1.05
 
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
@@ -353,10 +361,11 @@ func build_environment(quality: int) -> Environment:
 	env.fog_density = 0.0048
 	env.fog_sky_affect = 0.30
 
+	# 調色留給 post_fx 一層。環境再拉飽和，燈籠光暈會被洗成同一種紫。
 	env.adjustment_enabled = true
-	env.adjustment_brightness = 1.06
-	env.adjustment_contrast = 1.08
-	env.adjustment_saturation = 1.16
+	env.adjustment_brightness = 1.02
+	env.adjustment_contrast = 1.0
+	env.adjustment_saturation = 1.0
 
 	# 螢幕空間效果只在 Forward+ 且高畫質時開啟（行動端 / Web 直接跳過）
 	if quality >= 2 and OS.has_feature("forward_plus"):
@@ -440,7 +449,7 @@ func make_lantern() -> Node3D:
 	body.mesh = blob(0.30, 8, 12)
 	body.scale = Vector3(1.0, 1.25, 1.0)
 	body.position.y = 2.30
-	body.material_override = glow_material(COL_LANTERN, 3.2)
+	body.material_override = glow_material(COL_LANTERN, 4.6)
 	root.add_child(body)
 
 	var cap := MeshInstance3D.new()
@@ -451,7 +460,7 @@ func make_lantern() -> Node3D:
 
 	var light := OmniLight3D.new()
 	light.light_color = COL_LANTERN
-	light.light_energy = 2.4
+	light.light_energy = 3.2
 	light.omni_range = 7.0
 	light.shadow_enabled = false
 	light.position.y = 2.30

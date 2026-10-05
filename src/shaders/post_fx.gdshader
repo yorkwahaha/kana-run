@@ -66,11 +66,12 @@ void fragment() {
 		col = mix(col, z, focus_pulse * 0.35);
 	}
 
-	// 受擊：邊緣染紅 + 脈動
+	// 受擊：邊緣染紅 + 脈動。減少閃爍時把這層拿掉。
 	if (damage > 0.0) {
+		float kick = damage * (1.0 - reduce_motion);
 		float edge = smoothstep(0.18, 0.72, r);
-		col = mix(col, vec3(0.85, 0.10, 0.16), edge * damage * 0.72);
-		col *= 1.0 - damage * 0.10;
+		col = mix(col, vec3(0.85, 0.10, 0.16), edge * kick * 0.72);
+		col *= 1.0 - kick * 0.10;
 	}
 
 	// 答對閃光

@@ -34,6 +34,10 @@ var _shoulder_r: Array[Node3D] = []
 var _speed_lines: MultiMeshInstance3D
 var _petals: CPUParticles3D
 var _road_mat: ShaderMaterial
+var _ridges: Array[MeshInstance3D] = []
+var _ridge_mats: Array[StandardMaterial3D] = []
+var _zone := 0
+var _travel := 0.0
 var _rng := RandomNumberGenerator.new()
 
 
@@ -62,21 +66,49 @@ func _build_sky() -> void:
 	add_child(stars)
 	add_child(SceneKit.make_moon())
 
-	var ridge_far := MeshInstance3D.new()
-	ridge_far.mesh = SceneKit.mountain_ring(520.0, 120.0, 96, 991, 0.5)
-	ridge_far.material_override = SceneKit.flat_material(Color(0.075, 0.058, 0.115))
-	ridge_far.position.y = -6.0
-	add_child(ridge_far)
-
-	var ridge_near := MeshInstance3D.new()
-	ridge_near.mesh = SceneKit.mountain_ring(300.0, 62.0, 72, 1777, 0.7)
-	ridge_near.material_override = SceneKit.flat_material(Color(0.045, 0.035, 0.075))
-	ridge_near.position.y = -4.0
-	add_child(ridge_near)
+	# 三層：遠山帶一點自發光（空氣透視），中景接色，近山壓暗但仍吃側光。
+	_add_ridge(520.0, 120.0, 96, 991, 0.5, -6.0, Color(0.48, 0.52, 0.72), 0.32)
+	_add_ridge(400.0, 86.0, 84, 1501, 0.55, -5.0, Color(0.28, 0.26, 0.42), 0.14)
+	_add_ridge(300.0, 62.0, 72, 1777, 0.7, -4.0, Color(0.16, 0.13, 0.22), 0.06)
+	_paint_ridges(0)
 
 
 func _quality() -> int:
 	return int(SaveGame.get_setting("quality", 1))
+
+
+func _add_ridge(radius: float, height: float, segments: int, seed: int, jag: float, y: float, color: Color, emission: float) -> void:
+	var mi := MeshInstance3D.new()
+	mi.mesh = SceneKit.mountain_ring(radius, height, segments, seed, jag)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.92
+	mat.metallic = 0.0
+	if emission > 0.0:
+		mat.emission_enabled = true
+		mat.emission = color
+		mat.emission_energy_multiplier = emission
+	mi.material_override = mat
+	mi.position.y = y
+	add_child(mi)
+	_ridges.append(mi)
+	_ridge_mats.append(mat)
+
+
+func _paint_ridges(zone: int) -> void:
+	var palettes := [
+		[Color(0.48, 0.52, 0.72), Color(0.28, 0.26, 0.42), Color(0.16, 0.13, 0.22)],
+		[Color(0.40, 0.50, 0.68), Color(0.22, 0.28, 0.42), Color(0.13, 0.16, 0.26)],
+		[Color(0.58, 0.38, 0.50), Color(0.36, 0.20, 0.30), Color(0.20, 0.11, 0.16)],
+		[Color(0.50, 0.26, 0.32), Color(0.30, 0.14, 0.18), Color(0.16, 0.08, 0.11)],
+	]
+	var colors: Array = palettes[clampi(zone, 0, palettes.size() - 1)]
+	for i in _ridge_mats.size():
+		var mat := _ridge_mats[i]
+		var col: Color = colors[mini(i, colors.size() - 1)]
+		mat.albedo_color = col
+		if mat.emission_enabled:
+			mat.emission = col
 
 
 # ── 地面 ────────────────────────────────────────────────────────────────
@@ -88,7 +120,7 @@ func _build_ground() -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = plane
 	mi.position = Vector3(0, -0.06, -180)
-	var mat := SceneKit.flat_material(Color(0.030, 0.024, 0.048))
+	var mat := SceneKit.flat_material(Color(0.055, 0.046, 0.078))
 	mat.roughness = 1.0
 	mi.material_override = mat
 	add_child(mi)
@@ -99,7 +131,7 @@ func _build_ground() -> void:
 		var box := SceneKit.chamfer_box(Vector3(5.0, 0.5, ROAD_LENGTH), 0.08)
 		step.mesh = box
 		step.position = Vector3(side * (ROAD_WIDTH * 0.5 + 2.4), 0.16, -100)
-		step.material_override = SceneKit.flat_material(Color(0.055, 0.045, 0.085))
+		step.material_override = SceneKit.flat_material(Color(0.10, 0.082, 0.13))
 		add_child(step)
 
 
@@ -110,6 +142,8 @@ func _build_road() -> void:
 	mi.mesh = plane
 	mi.position = Vector3(0, 0.0, ROAD_START - ROAD_LENGTH * 0.5)
 	_road_mat = SceneKit.road_material()
+	_road_mat.set_shader_parameter("road_length", ROAD_LENGTH)
+	_road_mat.set_shader_parameter("travel", 0.0)
 	mi.material_override = _road_mat
 	add_child(mi)
 
@@ -118,7 +152,7 @@ func _build_road() -> void:
 func _build_dashes() -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(0.30, 4.6)
-	var mat := SceneKit.glow_material(Color(0.70, 0.80, 1.0), 3.4)
+	var mat := SceneKit.glow_material(Color(0.78, 0.86, 1.0), 3.6)
 	for row in [-1, 1]:
 		for i in DASH_COUNT:
 			var mi := MeshInstance3D.new()
@@ -227,6 +261,9 @@ func _build_shrine() -> void:
 	var plaster := SceneKit.flat_material(Color(0.90, 0.88, 0.82))
 	var stone := SceneKit.flat_material(Color(0.24, 0.22, 0.28))
 	var gold := SceneKit.flat_material(Color(0.93, 0.74, 0.28))
+	gold.emission_enabled = true
+	gold.emission = Color(0.93, 0.74, 0.28)
+	gold.emission_energy_multiplier = 0.55
 
 	for i in 3:
 		var step := MeshInstance3D.new()
@@ -285,9 +322,9 @@ func _build_shoulders() -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(1.9, 1.9)
 	var mats := [
-		SceneKit.flat_material(Color(0.062, 0.052, 0.090)),
-		SceneKit.flat_material(Color(0.085, 0.070, 0.115)),
-		SceneKit.flat_material(Color(0.045, 0.040, 0.075)),
+		SceneKit.flat_material(Color(0.11, 0.09, 0.15)),
+		SceneKit.flat_material(Color(0.14, 0.11, 0.18)),
+		SceneKit.flat_material(Color(0.08, 0.07, 0.12)),
 	]
 	for side in [-1, 1]:
 		var arr: Array[Node3D] = _shoulder_l if side < 0 else _shoulder_r
@@ -363,14 +400,8 @@ func set_theme(t: int) -> void:
 			_petals.mesh.surface_set_material(0, SceneKit.toon_material(Color(1.0, 0.80, 0.90), 0.5, 0.8, 0.18))
 	if _weather_kind != "":
 		set_weather(_weather_kind, _weather_gravity, _weather_tint)
-	if _road_mat:
-		match t:
-			1:
-				_road_mat.set_shader_parameter("rail_color", Color(1.0, 0.46, 0.28))
-			2:
-				_road_mat.set_shader_parameter("rail_color", Color(0.62, 0.84, 1.0))
-			_:
-				_road_mat.set_shader_parameter("rail_color", Color(0.42, 0.52, 1.0))
+	# 護欄顏色跟區走，不跟單元。單元只改天色和粒子。
+	_apply_zone_road()
 
 
 ## 分區天氣：改變粒子的重力、顏色與形狀。
@@ -403,6 +434,41 @@ func set_weather(kind: String, gravity: Vector3, tint: Color) -> void:
 	_petals.preprocess = 4.0
 
 
+## 四區的路面要一眼分得出來：暖、雨、神社琥珀、嵐。
+## 在 set_theme 之後再套一次，單元換軌的顏色才不會把區蓋掉。
+func set_zone(zone: int) -> void:
+	_zone = clampi(zone, 0, 3)
+	_paint_ridges(_zone)
+	_apply_zone_road()
+
+
+func _apply_zone_road() -> void:
+	if _road_mat == null:
+		return
+	match _zone:
+		1:
+			_road_mat.set_shader_parameter("base_color", Color(0.10, 0.12, 0.16))
+			_road_mat.set_shader_parameter("wet_color", Color(0.16, 0.32, 0.52))
+			_road_mat.set_shader_parameter("wetness", 0.86)
+			_rail_base = Color(0.50, 0.72, 1.0)
+		2:
+			_road_mat.set_shader_parameter("base_color", Color(0.16, 0.11, 0.12))
+			_road_mat.set_shader_parameter("wet_color", Color(0.32, 0.16, 0.12))
+			_road_mat.set_shader_parameter("wetness", 0.30)
+			_rail_base = Color(1.0, 0.58, 0.26)
+		3:
+			_road_mat.set_shader_parameter("base_color", Color(0.09, 0.07, 0.10))
+			_road_mat.set_shader_parameter("wet_color", Color(0.26, 0.10, 0.14))
+			_road_mat.set_shader_parameter("wetness", 0.92)
+			_rail_base = Color(1.0, 0.32, 0.36)
+		_:
+			_road_mat.set_shader_parameter("base_color", Color(0.20, 0.16, 0.18))
+			_road_mat.set_shader_parameter("wet_color", Color(0.20, 0.24, 0.28))
+			_road_mat.set_shader_parameter("wetness", 0.20)
+			_rail_base = Color(0.82, 0.66, 0.36)
+	_road_mat.set_shader_parameter("rail_color", _rail_base)
+
+
 ## 連段里程碑：護欄整條亮一下
 func flash_rails() -> void:
 	_rail_flash = 1.0
@@ -411,6 +477,9 @@ func flash_rails() -> void:
 # ── 每幀推進 ────────────────────────────────────────────────────────────
 func advance(distance: float) -> void:
 	var dz := distance
+	_travel = fposmod(_travel + distance, ROAD_LENGTH)
+	if _road_mat != null:
+		_road_mat.set_shader_parameter("travel", _travel)
 	_recycle(_dashes, DASH_SPAN * DASH_COUNT, dz)
 	_recycle(_lanterns, LANTERN_SPAN * LANTERN_COUNT, dz)
 	_recycle(_gates, GATE_SPAN * GATE_COUNT, dz)
@@ -492,6 +561,9 @@ func _apply_scroll() -> void:
 
 
 func reset() -> void:
+	_travel = 0.0
+	if _road_mat != null:
+		_road_mat.set_shader_parameter("travel", 0.0)
 	_rng.seed = randi()
 	for d in _dashes:
 		d.position.z = _rng.randf_range(-70.0, 20.0)

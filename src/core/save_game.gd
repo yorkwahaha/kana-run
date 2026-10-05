@@ -32,7 +32,7 @@ var _timer := 0.0
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	settings = DEFAULT_SETTINGS.duplicate(true)
-	data = {"kana": {}, "best": {}, "collection": {}, "totals": {}}
+	data = {"kana": {}, "best": {}, "collection": {}, "totals": {}, "pace": {}}
 	load_all()
 
 
@@ -120,6 +120,50 @@ func set_best_score(unit_key: String, value: int) -> void:
 		mark_dirty()
 
 
+## 上一局進第 2／3／4 區當下的分數。-1 代表那一格還沒跑到過。
+## 標準與驟死各記各的，死在第一區不會把後面的分數清掉。
+func pace_marks(mode: String) -> Array:
+	var pace: Dictionary = data.get("pace", {})
+	var raw: Variant = pace.get(mode, null)
+	var out: Array = [-1, -1, -1]
+	if typeof(raw) == TYPE_ARRAY:
+		var arr: Array = raw
+		for i in mini(3, arr.size()):
+			out[i] = int(arr[i])
+	return out
+
+
+func write_pace(mode: String, marks: Array) -> void:
+	if typeof(data.get("pace", null)) != TYPE_DICTIONARY:
+		data["pace"] = {}
+	var clean: Array = [-1, -1, -1]
+	for i in 3:
+		if i < marks.size():
+			clean[i] = int(marks[i])
+	(data["pace"] as Dictionary)[mode] = clean
+	mark_dirty()
+
+
+func last_score(mode: String) -> int:
+	var pace: Dictionary = data.get("pace", {})
+	var last: Variant = pace.get("last", {})
+	if typeof(last) != TYPE_DICTIONARY:
+		return -1
+	return int((last as Dictionary).get(mode, -1))
+
+
+func set_last_score(mode: String, score: int) -> void:
+	if typeof(data.get("pace", null)) != TYPE_DICTIONARY:
+		data["pace"] = {}
+	var pace: Dictionary = data["pace"]
+	var last: Dictionary = {}
+	if typeof(pace.get("last", null)) == TYPE_DICTIONARY:
+		last = (pace["last"] as Dictionary).duplicate()
+	last[mode] = score
+	pace["last"] = last
+	mark_dirty()
+
+
 func collect_word(word: String) -> bool:
 	if data["collection"].has(word):
 		return false
@@ -143,6 +187,6 @@ func total(field: String) -> int:
 
 
 func wipe_progress() -> void:
-	data = {"kana": {}, "best": {}, "collection": {}, "totals": {}}
+	data = {"kana": {}, "best": {}, "collection": {}, "totals": {}, "pace": {}}
 	mark_dirty()
 	flush()

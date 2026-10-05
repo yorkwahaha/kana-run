@@ -14,7 +14,9 @@ enum QType {
 }
 
 const LISTENING_DIR := "res://audio/kana/"
-const LISTENING_EXT := ["ogg", "mp3", "wav", "m4a"]
+## mp3 放第一位。iOS Safari 18.4 以前不播 ogg，
+## 若兩種都在，先抽到 ogg 會讓 iPad 整題沒聲音。
+const LISTENING_EXT := ["mp3", "ogg", "wav", "m4a"]
 
 var script_mode := 0            ## 0 = 平假名, 1 = 片假名
 var _listening_cache: Dictionary = {}
@@ -276,10 +278,15 @@ const WORDS_DIR := "res://audio/words/"
 func word_file(reading: String) -> String:
 	if reading.is_empty():
 		return ""
-	for ext in LISTENING_EXT:
-		var path := "%s%s.%s" % [WORDS_DIR, reading, ext]
-		if ResourceLoader.exists(path):
-			return path
+	var keys: Array = [reading]
+	var hira := KanaDB.to_hiragana(reading)
+	if hira != reading:
+		keys.append(hira)
+	for key in keys:
+		for ext in LISTENING_EXT:
+			var path := "%s%s.%s" % [WORDS_DIR, key, ext]
+			if ResourceLoader.exists(path):
+				return path
 	return ""
 
 

@@ -30,7 +30,8 @@ var _session_ids: Array = []      ## 本局已出現的 kana，避免重複
 ## 產生本局的完整出題順序：
 ##   新音依五十音圖順序（教學順序不可跳），複習音依「弱度 × 遺忘 × 遲鈍」加權。
 ## 第一局像課程，之後每局都像個人化教練。
-func build_queue(kinds: Array) -> Array:
+## beats < 0 用標準輪的題數。驟死把時鐘當終點，題列要長過 90 秒。
+func build_queue(kinds: Array, beats := -1) -> Array:
 	unit_kinds = kinds.duplicate()
 	_index = 0
 	_queue = []
@@ -51,20 +52,20 @@ func build_queue(kinds: Array) -> Array:
 			else:
 				_review_pool.append(kana)
 
-	_assemble_run()
+	_assemble_run(RUN_BEATS if beats < 0 else beats)
 	return _queue.duplicate()
 
 
 ## 一輪固定長度，不把整本五十音一次跑完。
 ## 全是新音時照圖表順序取，單元太短就再繞一圈。
 ## 已經有複習池時，先放幾個新音，剩下用弱項加權抽，避免同一音連著出現。
-func _assemble_run() -> void:
+func _assemble_run(limit: int) -> void:
 	_queue = []
+	if limit <= 0 or (_new_pool.is_empty() and _review_pool.is_empty()):
+		return
 	if _review_pool.is_empty():
-		if _new_pool.is_empty():
-			return
 		var i := 0
-		while _queue.size() < RUN_BEATS:
+		while _queue.size() < limit:
 			_queue.append(_new_pool[i % _new_pool.size()])
 			i += 1
 		return
@@ -72,7 +73,7 @@ func _assemble_run() -> void:
 	for i in fresh:
 		_queue.append(_new_pool[i])
 	var guard := 0
-	while _queue.size() < RUN_BEATS and guard < RUN_BEATS * 4:
+	while _queue.size() < limit and guard < limit * 4:
 		guard += 1
 		var prev := "" if _queue.is_empty() else str(_queue[_queue.size() - 1])
 		_queue.append(_pick_review(prev))
@@ -81,12 +82,20 @@ func _assemble_run() -> void:
 func _pick_review(avoid: String) -> String:
 	if _review_pool.size() == 1:
 		return str(_review_pool[0])
+	# 指數權重會把最弱的幾個音放大到幾百倍，一局複習區只剩 3～5 個字在轉。
+	# 線性權重仍讓弱項先出，最近四題再壓低，避免同一小圈無限輪迴。
+	var recent := {}
+	var start := maxi(0, _queue.size() - 4)
+	for i in range(start, _queue.size()):
+		recent[str(_queue[i])] = true
 	var total := 0.0
 	var weights: Array = []
 	for k in _review_pool:
-		var w := exp(_urgency(str(k)) * 0.55)
+		var w := 1.0 + _urgency(str(k)) * 0.40
 		if str(k) == avoid:
-			w *= 0.08
+			w *= 0.05
+		elif recent.has(str(k)):
+			w *= 0.25
 		total += w
 		weights.append(total)
 	var roll := randf() * maxf(total, 0.0001)
@@ -122,11 +131,14 @@ func pop_next() -> String:
 	return kana
 
 
-## 閃避或自動重練時把題目插回前方
+## 閃避或自動重練：撤掉剛剛抽出的這一格，插回三題之後。
+## 直接覆寫原格的話，下一題就是同一個音，棄題變成免費重考。
 func requeue(kana: String) -> void:
 	_index = maxi(0, _index - 1)
-	if _index < _queue.size():
-		_queue[_index] = kana
+	if _index < _queue.size() and str(_queue[_index]) == kana:
+		_queue.remove_at(_index)
+	var at := mini(_index + 3, _queue.size())
+	_queue.insert(at, kana)
 
 
 func _record_of(kana: String) -> Dictionary:

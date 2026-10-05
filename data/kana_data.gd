@@ -131,7 +131,7 @@ const WORDS: Dictionary = {
 	"ば": ["場所", "ばしょ", "basho", "場所"],
 	"び": ["美人", "びじん", "bijin", "美人"],
 	"ぶ": ["部", "ぶ", "bu", "部分"],
-	"べ": ["蛇", "へび", "hebi", "毒蛇"],
+	"べ": [],
 	"ぼ": ["僕", "ぼく", "boku", "我（僕）"],
 	"ぱ": ["麵包", "ぱん", "pan", "麵包"],
 	"ぴ": ["啤酒", "びーる", "biiru", "啤酒"],
@@ -193,7 +193,7 @@ const CONFUSION_GROUPS: Array = [
 	["そ", "こ", "と", "さ", "ぞ"],
 	["た", "な", "は", "ら", "だ"],
 	["ち", "し", "つ", "り", "ぢ"],
-	["つ", "す", "っ", "ち", "ふ", "づ"],
+	["つ", "す", "ち", "ふ", "づ"],
 	["て", "と", "ね", "け", "で"],
 	["と", "そ", "こ", "ね", "ど"],
 	["な", "は", "た", "ら", "ま"],
@@ -227,7 +227,7 @@ const CONFUSION_GROUPS: Array = [
 	["だ", "た", "で", "ど", "ち", "つ"],
 	["ば", "は", "び", "ぶ", "べ", "ぼ"],
 	["ぱ", "は", "ぴ", "ぷ", "ぺ", "ぽ"],
-	["きゃ", "しゃ", "ちゃ", "にゃ", "ひゃ", "みゃ", "ぎゃ", "じゃ", "びゃ", "ぴゃ"],
+	["きゃ", "しゃ", "ちゃ", "にゃ", "ひゃ", "みゃ", "りゃ", "ぎゃ", "じゃ", "びゃ", "ぴゃ"],
 	["きゅ", "しゅ", "ちゅ", "にゅ", "ひゅ", "びゅ", "ぴゅ", "りゅ", "みゅ", "ぎゅ"],
 	["きょ", "しょ", "ちょ", "にょ", "ひょ", "びょ", "ぴょ", "りょ", "みょ", "ぎょ"],
 	["ぎゃ", "じゃ", "ちゃ", "びゃ", "ぴゃ", "しゃ"],
@@ -257,19 +257,15 @@ static func decompose(kana: String) -> Array:
 		return out
 	if DAKUEN_BASE.has(kana):
 		var b: String = DAKUEN_BASE[kana]
-		if kana.begins_with("は") or kna_at(kana, 1) == "は":
-			out.append("「%s」加上半濁點（°）變成「%s」，讀音不變、語感更輕" % [b, kana])
-		elif kana == "ぢ" or kana == "づ":
-			out.append("「%s」加濁點的歷史假名，現代多寫成「%s／%s」" % [b, b + "じ", b + "ず"])
+		if kana in ["ぱ", "ぴ", "ぷ", "ぺ", "ぽ"]:
+			out.append("「%s」加上半濁點（°）變成「%s」，h 行改讀成 p" % [b, kana])
+		elif kana == "ぢ":
+			out.append("「ち」加濁點的歷史假名，現代多寫成「じ」")
+		elif kana == "づ":
+			out.append("「つ」加濁點的歷史假名，現代多寫成「ず」")
 		else:
 			out.append("「%s」加上濁點（゛）變成「%s」" % [b, kana])
 	return out
-
-
-static func kna_at(s: String, i: int) -> String:
-	if i < 0 or i >= s.length():
-		return ""
-	return s.substr(i, 1)
 
 
 ## 把一串假名切成一個一個「音」。
@@ -407,9 +403,12 @@ static func confusion(kana: String) -> Array:
 	var want_kata := is_katakana(kana)
 	var out: Array = []
 	for k in group:
-		if k == kana:
+		# 片假名的索引指回平假名群。直接比 k == kana 永遠對不上，
+		# 轉寫之後正解會把自己算進混淆項。
+		var shown := to_script(str(k), want_kata)
+		if shown == kana or out.has(shown):
 			continue
-		out.append(to_script(str(k), want_kata))
+		out.append(shown)
 	return out
 
 
@@ -439,11 +438,24 @@ static func _lookup_word(kana: String) -> Array:
 	if WORDS.has(kana):
 		return WORDS[kana]
 	if is_katakana(kana):
-		return WORDS.get(to_script(kana, false), [])
+		return WORDS.get(to_hiragana(kana), [])
 	return []
 
 
+## 片假名轉回平假名。詞庫與音檔都以平假名為鍵。
+static func to_hiragana(kana: String) -> String:
+	var out := ""
+	for i in kana.length():
+		var code := kana.unicode_at(i)
+		if code >= 0x30A1 and code <= 0x30F6:
+			out += String.chr(code - 0x60)
+		else:
+			out += String.chr(code)
+	return out
+
+
 ## 假名平／片假名互轉。`katakana` 為 true 時輸出片假名。
+## false 時不轉換：平假名維持原樣，片假名也不會被轉回去。要轉回用 to_hiragana。
 static func to_script(kana: String, katakana: bool) -> String:
 	if not katakana:
 		return kana

@@ -5,6 +5,7 @@ extends Control
 ## 用 signals 回報玩家的決定，讓 Main 只負責流程。
 
 signal start_requested(kinds: Array)
+signal sudden_requested
 signal resume_requested
 signal restart_requested
 signal quit_to_title
@@ -123,6 +124,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
 		match _current:
 			Page.PAUSE:
+				get_viewport().set_input_as_handled()
 				Sfx.ui_back()
 				resume_requested.emit()
 			Page.SETTINGS:
@@ -158,7 +160,7 @@ func _build_title() -> void:
 		"前方三座石碑，只有刻著正確假名的那座可以撞破。\n" +
 		"題目不只考背誦 —— 越往後越考詞彙、混淆字與反應速度。\n" +
 		"石碑進入可讀範圍後，越早選定正確跑道評價越高：0.45 秒內 PERFECT、0.90 秒內 GREAT，其後 GOOD。\n" +
-		"來不及就按 ↓ 棄題（那一題稍後還會再考），體力換取思考的餘裕。")
+		"來不及就按 ↓ 棄題（三題後再考，扣體力、熱度減半）。")
 	brief.add_theme_font_size_override("font_size", 18)
 
 	_stats_label = UiKit.label("", 15, Color(0.65, 0.68, 0.82))
@@ -166,12 +168,20 @@ func _build_title() -> void:
 	_stats_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	box.add_child(_stats_label)
 
+	var sudden_note := _caption(box, "90 秒驟死：答錯或撞桿就結束。沒有體力條，追的是分數和連段。")
+	sudden_note.add_theme_font_size_override("font_size", 16)
+
 	var row := _action_row(box)
 
 	var b_start := UiKit.primary_button("開始", UiKit.VIOLET)
 	b_start.custom_minimum_size = Vector2(280, 68)
 	b_start.pressed.connect(func(): Sfx.ui_tap(); start_requested.emit([]))
 	row.add_child(b_start)
+
+	var b_sudden := UiKit.button("90 秒驟死", UiKit.BLOOD)
+	b_sudden.custom_minimum_size = Vector2(220, 68)
+	b_sudden.pressed.connect(func(): Sfx.ui_tap(); sudden_requested.emit())
+	row.add_child(b_sudden)
 
 	var more := _action_row(box)
 
@@ -438,18 +448,43 @@ func _build_results() -> void:
 
 func show_results(data: Dictionary) -> void:
 	var box: VBoxContainer = _shell_box[Page.RESULTS]
+	# queue_free 要等這一幀結束才真的拆掉，立刻 add_child 會跟舊結算重疊一幀。
 	for c in box.get_children():
-		c.queue_free()
+		box.remove_child(c)
+		c.free()
 
 	var cleared: bool = data.get("cleared", false)
-	_headline(box, "關卡制霸！" if cleared else "挑戰結束", 56)
+	var sudden: bool = data.get("sudden", false)
+	var headline := "關卡制霸！" if cleared else "挑戰結束"
+	if sudden:
+		if not cleared:
+			headline = "驟死"
+		elif data.get("sudden_timeout", false):
+			headline = "撐過 90 秒"
+		else:
+			headline = "題目跑完"
+	var grade_txt := str(data.get("grade", ""))
+	_headline(box, headline, (42 if grade_txt != "" else 56))
 	(box.get_child(box.get_child_count() - 1) as Label).add_theme_color_override(
 		"font_color", UiKit.GOLD if cleared else UiKit.BLOOD)
 
-	var score := UiKit.label(str(int(data.get("score", 0))), 84, UiKit.GOLD, true)
+	if grade_txt != "":
+		var grade := UiKit.label(grade_txt, 88, _grade_color(grade_txt), true)
+		grade.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		grade.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		box.add_child(grade)
+
+	var score := UiKit.label(str(int(data.get("score", 0))), (36 if grade_txt != "" else 84), UiKit.GOLD, true)
 	score.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	score.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	box.add_child(score)
+
+	var record := str(data.get("record_line", ""))
+	if record != "":
+		var rl := UiKit.label(record, 20, UiKit.GOLD if record == "新紀錄" else UiKit.INK_DIM)
+		rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		box.add_child(rl)
 
 	var combo := UiKit.label("最高連段　%d" % int(data.get("best_combo", 0)), 28, UiKit.VIOLET, true)
 	combo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -492,6 +527,20 @@ func show_results(data: Dictionary) -> void:
 	box.add_child(diag)
 
 	_show(Page.RESULTS)
+
+
+func _grade_color(grade: String) -> Color:
+	match grade:
+		"S":
+			return UiKit.GOLD
+		"A":
+			return UiKit.JADE
+		"B":
+			return UiKit.VIOLET
+		"C":
+			return UiKit.INK
+		_:
+			return UiKit.BLOOD
 
 
 func _stat_chip(label_text: String, value: String, color: Color) -> PanelContainer:
