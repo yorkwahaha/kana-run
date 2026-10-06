@@ -120,21 +120,101 @@ func _show(id: int) -> Control:
 	_current = id
 	var tw := create_tween()
 	tw.tween_property(page, "modulate:a", 1.0, 0.18)
+	_focus_page.call_deferred(page)
 	return page
 
 
+func _focus_page(page: Control) -> void:
+	if not is_instance_valid(page) or not page.visible:
+		return
+	var target := _first_focusable(page)
+	if target:
+		target.grab_focus()
+
+
+func _first_focusable(n: Node) -> Control:
+	if n is BaseButton:
+		var b := n as BaseButton
+		if b.focus_mode != Control.FOCUS_NONE and b.visible and not b.disabled:
+			return b
+	elif n is Slider:
+		var s := n as Slider
+		if s.focus_mode != Control.FOCUS_NONE and s.visible:
+			return s
+	for c in n.get_children():
+		var found := _first_focusable(c)
+		if found:
+			return found
+	return null
+
+
+func _link_brief_focus() -> void:
+	var plays: Array = []
+	for card in _brief_row.get_children():
+		var btn := _last_button(card)
+		if btn:
+			plays.append(btn)
+	var bottom: Array = []
+	var page: Control = _pages[Page.BRIEF]
+	_collect_buttons(page, bottom, _brief_row)
+	_link_horizontal(plays)
+	_link_horizontal(bottom)
+	if plays.is_empty() or bottom.is_empty():
+		return
+	var mid: Control = plays[plays.size() >> 1]
+	for b in plays:
+		(b as Control).focus_neighbor_bottom = (b as Control).get_path_to(bottom[0])
+	for b in bottom:
+		(b as Control).focus_neighbor_top = (b as Control).get_path_to(mid)
+
+
+func _last_button(n: Node) -> Button:
+	var found: Button = null
+	if n is Button:
+		found = n as Button
+	for c in n.get_children():
+		var inner := _last_button(c)
+		if inner:
+			found = inner
+	return found
+
+
+func _collect_buttons(n: Node, into: Array, skip: Node) -> void:
+	if n == skip:
+		return
+	if n is Button and (n as Button).focus_mode != Control.FOCUS_NONE:
+		into.append(n)
+	for c in n.get_children():
+		_collect_buttons(c, into, skip)
+
+
+func _link_horizontal(row: Array) -> void:
+	for i in row.size():
+		var b := row[i] as Control
+		if b == null:
+			continue
+		if i > 0:
+			b.focus_neighbor_left = b.get_path_to(row[i - 1])
+		if i + 1 < row.size():
+			b.focus_neighbor_right = b.get_path_to(row[i + 1])
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause"):
+	if _current == Page.NONE:
+		return
+	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("pause"):
+		get_viewport().set_input_as_handled()
 		match _current:
 			Page.PAUSE:
-				get_viewport().set_input_as_handled()
 				Sfx.ui_back()
 				resume_requested.emit()
 			Page.SETTINGS:
 				_close_settings()
 			Page.HELP:
 				_close_help()
-			Page.TITLE, Page.BRIEF, Page.DASHBOARD, Page.RESULTS:
+			Page.BRIEF, Page.DASHBOARD, Page.RESULTS:
+				if event.is_action_pressed("ui_cancel"):
+					Sfx.ui_back()
 				show_title()
 			_:
 				pass
@@ -218,7 +298,8 @@ func _build_help() -> void:
 	_caption(box, "90 秒驟死：答錯或撞桿就結束。沒有體力條，追的是分數和連段。")
 	_caption(box,
 		"鍵盤：A D 或 ← → 換線，1 2 3 直選，↓ 棄題或蹲下，Esc 暫停。\n" +
-		"觸控：左右滑換線，下滑蹲下。畫面左下與右下有左、閃、中、右。右上角是暫停。")
+		"觸控：左右滑換線，下滑蹲下。畫面左下與右下有左、閃、中、右。右上角是暫停。\n" +
+		"控制器：十字鍵選擇，A 確定，B 返回。遊戲中十字鍵左右換線，下蹲，開始鍵暫停。")
 
 	var brow := _action_row(box)
 	var back := UiKit.button("返回")
@@ -241,12 +322,14 @@ func _rebuild_briefing() -> void:
 	if _brief_row == null:
 		return
 	for c in _brief_row.get_children():
-		c.queue_free()
+		_brief_row.remove_child(c)
+		c.free()
 	_brief_row.add_child(_unit_card(KanaDB.Kind.SEION))
 	_brief_row.add_child(_unit_card(KanaDB.Kind.DAKUON))
 	_brief_row.add_child(_unit_card(KanaDB.Kind.YOON))
 	_brief_row.add_child(_unit_card(KanaDB.Kind.KATA))
 	_brief_row.add_child(_grand_card())
+	_link_brief_focus()
 
 
 func _unit_card(kind: int) -> PanelContainer:
@@ -393,9 +476,16 @@ func _build_relic() -> void:
 
 func show_relic(owned: Dictionary) -> void:
 	for c in _relic_row.get_children():
-		c.queue_free()
+		_relic_row.remove_child(c)
+		c.free()
+	var picks: Array = []
 	for def in RelicPool.roll(owned, _rng):
-		_relic_row.add_child(_relic_card(def, owned))
+		var card := _relic_card(def, owned)
+		_relic_row.add_child(card)
+		var btn := _last_button(card)
+		if btn:
+			picks.append(btn)
+	_link_horizontal(picks)
 	_show(Page.RELIC)
 
 
@@ -595,6 +685,8 @@ func _build_settings() -> void:
 	v.add_child(_toggle_row("解鎖全部關卡", "unlock_all"))
 	v.add_child(_slider_row("畫面震動", "screen_shake"))
 	v.add_child(_toggle_row("減少閃爍（無障礙）", "reduce_motion"))
+	v.add_child(UiKit.hsep())
+	v.add_child(_wipe_row())
 
 	var row := _action_row(box)
 
@@ -603,18 +695,32 @@ func _build_settings() -> void:
 	back.pressed.connect(func(): Sfx.ui_tap(); _close_settings())
 	row.add_child(back)
 
-	var wipe := UiKit.button("清除學習進度", UiKit.BLOOD)
-	wipe.custom_minimum_size = Vector2(210, 52)
-	wipe.pressed.connect(func():
+	page.modulate.a = 1.0
+
+
+func _wipe_row() -> Control:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 14)
+	var l := UiKit.label("學習紀錄", 18, UiKit.INK)
+	l.custom_minimum_size = Vector2(210, 0)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(l)
+	var b := UiKit.button("清除", UiKit.BLOOD)
+	b.custom_minimum_size = Vector2(148, 40)
+	b.pressed.connect(func():
+		if b.text == "清除":
+			b.text = "再按一次"
+			return
 		Sfx.ui_back()
 		SaveGame.wipe_progress()
 		Sfx.refresh_volumes()
 		Curriculum.sync_settings()
-		_rebuild_briefing()          # 讓關卡卡片的掌握度立即歸零
-		settings_changed.emit())
-	row.add_child(wipe)
-
-	page.modulate.a = 1.0
+		_rebuild_briefing()
+		settings_changed.emit()
+		b.text = "已清除"
+		b.disabled = true)
+	h.add_child(b)
+	return h
 
 
 func _slider_row(name: String, key: String) -> Control:

@@ -152,6 +152,26 @@ func _run() -> void:
 	if fails == 0:
 		print("[touch] 首頁三個入口只有文字")
 
+	var start_btn := _find_button(ui, "開始")
+	if start_btn != null and start_btn.focus_mode != Control.FOCUS_NONE:
+		start_btn.grab_focus()
+		await process_frame
+		var down := InputEventAction.new()
+		down.action = &"ui_down"
+		down.pressed = true
+		Input.parse_input_event(down)
+		await process_frame
+		var owner := start_btn.get_viewport().gui_get_focus_owner()
+		if owner is Button and (owner as Button).text == "設定":
+			print("[touch] 手把可以在首頁上下移動")
+		else:
+			var got := "沒有" if owner == null else str(owner)
+			print("   ★ 十字鍵下沒有移到設定（現在是 %s）" % got)
+			fails += 1
+	elif start_btn != null:
+		print("   ★ 開始不能用手把聚焦")
+		fails += 1
+
 	ui.show_brief()
 	await process_frame
 	if _find_button(ui, "90 秒驟死") == null:

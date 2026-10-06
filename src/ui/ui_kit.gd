@@ -56,9 +56,14 @@ static func theme() -> Theme:
 	t.set_stylebox("hover", "Button", btn_hover)
 	t.set_stylebox("pressed", "Button", btn_press)
 	t.set_stylebox("disabled", "Button", btn_disabled)
-	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
+	var btn_focus := btn.duplicate() as StyleBoxFlat
+	btn_focus.bg_color = Color(0.24, 0.22, 0.42, 0.99)
+	btn_focus.border_color = EDGE_HOT
+	t.set_stylebox("focus", "Button", btn_focus)
+	t.set_stylebox("focus", "CheckButton", btn_focus)
 	t.set_color("font_color", "Button", INK)
 	t.set_color("font_hover_color", "Button", Color(1, 1, 1))
+	t.set_color("font_focus_color", "Button", Color(1, 1, 1))
 	t.set_color("font_pressed_color", "Button", INK_DIM)
 	t.set_color("font_disabled_color", "Button", Color(0.45, 0.45, 0.55))
 	t.set_font("font", "Button", FontKit.bold)
@@ -85,7 +90,9 @@ static func theme() -> Theme:
 	t.set_stylebox("normal", "OptionButton", opt)
 	t.set_stylebox("hover", "OptionButton", opt)
 	t.set_stylebox("pressed", "OptionButton", opt)
-	t.set_stylebox("focus", "OptionButton", StyleBoxEmpty.new())
+	var opt_focus := opt.duplicate() as StyleBoxFlat
+	opt_focus.border_color = EDGE_HOT
+	t.set_stylebox("focus", "OptionButton", opt_focus)
 	t.set_color("font_color", "OptionButton", INK)
 	t.set_font("font", "OptionButton", FontKit.ui)
 	t.set_font_size("font_size", "OptionButton", 20)
@@ -173,7 +180,7 @@ static func button(text: String, accent := EDGE) -> Button:
 	var pr := sb.duplicate() as StyleBoxFlat
 	pr.bg_color = Color(0.09, 0.08, 0.17, 1)
 	b.add_theme_stylebox_override("pressed", pr)
-	b.focus_mode = Control.FOCUS_NONE
+	b.focus_mode = Control.FOCUS_ALL
 	return b
 
 
@@ -181,8 +188,9 @@ static func button(text: String, accent := EDGE) -> Button:
 static func text_button(text: String, size := 32, color := INK) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.focus_mode = Control.FOCUS_NONE
+	b.focus_mode = Control.FOCUS_ALL
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	b.add_theme_color_override("font_focus_color", GOLD)
 	b.add_theme_font_override("font", FontKit.bold)
 	b.add_theme_font_size_override("font_size", size)
 	b.add_theme_color_override("font_color", color)

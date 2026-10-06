@@ -506,7 +506,7 @@ func _apply_settings() -> void:
 	_cam.reduce_motion = _reduce_motion
 	_post_mat.set_shader_parameter("reduce_motion", _reduce_motion)
 	_post_mat.set_shader_parameter("grain", 0.045 * (1.0 - _reduce_motion * 0.7))
-	_hud.set_hint_visible(DisplayServer.is_touchscreen_available() == false)
+	_hud.set_hint_visible(DisplayServer.is_touchscreen_available() == false and _resolved < 5)
 
 
 # ── 狀態切換 ────────────────────────────────────────────────────────────
@@ -778,8 +778,9 @@ func _pick_next_wave() -> void:
 	_hud.set_question(_question, false)
 	_hud.hide_explain()                 # 新題目一出來，錯題卡就收掉
 	_hud.set_progress(Srs.done(), Srs.total_count())
-	# 三級評價的說明只在一局的頭幾題出現，之後自動收起
+	# 三級評價與按鍵提示只在一局的頭幾題出現，之後把路面讓出來
 	_hud.set_grade_hint(_resolved < 5)
+	_hud.set_hint_visible(DisplayServer.is_touchscreen_available() == false and _resolved < 5)
 	_track.set_speed01(_speed01())
 	_maybe_spawn_gem()
 	_play_question_voice()
@@ -958,17 +959,20 @@ func _resolve_barrier() -> void:
 		_cam.shake(0.85 * _shake_user, 8.0)
 		_cam.punch(0.9 * _shake_user)
 		_damage_flash = 1.0
-		Sfx.miss()
+		InputKit.rumble_miss()
 		_duck_timer = 0.0
 		_runner.set_duck(false)
 		_barrier.position.z = -400.0
 		if _sudden:
-			_begin_collapse(false, "斷了", false)
+			Sfx.miss()
+			_begin_collapse(false, "斷了")
 			return
-		_hud.banner("撞到！　-20 km/h", Color(1.0, 0.42, 0.42), 0.7)
 		if _stamina <= 0.0:
+			# 這一撞把體力扣光、整局結束。不再播撞錯音。
 			_begin_collapse(true)
 			return
+		Sfx.miss()
+		_hud.banner("撞到！　-20 km/h", Color(1.0, 0.42, 0.42), 0.7)
 		_gap = 0.44
 		_check_after_gap()
 		return
@@ -1266,7 +1270,7 @@ func _tick_relic_status() -> void:
 ##
 ## flung=true 代表「是撞到沒體力」而不是慢慢耗盡：
 ## 角色會被撞飛出去，趴在地上。
-func _begin_collapse(flung := false, banner_text := "", play_sfx := true) -> void:
+func _begin_collapse(flung := false, banner_text := "") -> void:
 	if state != State.PLAY:
 		return
 	state = State.COLLAPSE
@@ -1299,8 +1303,6 @@ func _begin_collapse(flung := false, banner_text := "", play_sfx := true) -> voi
 	if text == "":
 		text = "撞飛出去了" if flung else "體力用盡"
 	_hud.banner(text, UiKit.INK_DIM, 1.4)
-	if play_sfx:
-		Sfx.miss()
 	if flung:
 		_cam.shake(1.0 * _shake_user, 6.0)
 		_cam.punch(1.2 * _shake_user)
@@ -1830,6 +1832,7 @@ func _resolve_hit(kana: String, ms: float) -> void:
 	_cam.pulse(1.0)
 	_cam.shake(0.45 * _shake_user, 6.0)
 	_cam.punch(0.5 * _shake_user)
+	InputKit.rumble_hit()
 
 	match grade:
 		"perfect":
@@ -1892,7 +1895,10 @@ func _resolve_miss(kana: String, ms: float) -> void:
 	speed_loss = maxf(0.0, before_kmh - _momentum_kmh)
 
 	_od_charge = 0.0
-	Sfx.miss()
+	InputKit.rumble_miss()
+	# 體力被這一題扣光時，結束本身就是結果，不再疊一聲撞錯。
+	if _sudden or _stamina > 0.0:
+		Sfx.miss()
 	# 答錯的停頓就是這 130ms 的打擊停滯。先前把 time_scale 目標設成 0.30
 	# 又在同一個函式末尾設回 1.0，慢動作從來沒有進到下一幀。
 	_hitstop_until_ms = Time.get_ticks_msec() + 130
@@ -1907,7 +1913,7 @@ func _resolve_miss(kana: String, ms: float) -> void:
 	# 驟死：這一撞就是結束。不扣一條看不見的體力。
 	if _sudden:
 		_check_zone()
-		_begin_collapse(false, "斷了　正解　%s" % shown, false)
+		_begin_collapse(false, "斷了　正解　%s" % shown)
 		return
 	# 撞錯的那顆石碑已經砸過來了：如果這一撞直接把體力扣到 0，
 	# 就不該是「慢慢跪下」，而是被撞飛出去趴在地上。

@@ -84,6 +84,16 @@ func _run() -> void:
 	_ok(KEY_D in _bound_keys("lane_right"), "lane_right 綁定 D")
 	_ok(KEY_RIGHT in _bound_keys("lane_right"), "lane_right 綁定 →")
 	_ok(KEY_1 in _bound_keys("pick_1"), "pick_1 綁定 1")
+	var accept_joy := false
+	for e in InputMap.action_get_events("ui_accept"):
+		if e is InputEventJoypadButton and (e as InputEventJoypadButton).button_index == JOY_BUTTON_A:
+			accept_joy = true
+	_ok(accept_joy, "ui_accept 綁定手把 A")
+	var cancel_joy := false
+	for e in InputMap.action_get_events("ui_cancel"):
+		if e is InputEventJoypadButton and (e as InputEventJoypadButton).button_index == JOY_BUTTON_B:
+			cancel_joy = true
+	_ok(cancel_joy, "ui_cancel 綁定手把 B")
 
 	print("[input-test] 觸控手勢")
 	var g: Dictionary = await _gesture(func():
@@ -135,6 +145,11 @@ func _run() -> void:
 	_kit.begin_frame()
 	_ok(not _kit.dodge_pressed and not _kit.tapped and not _kit.tapped_swiped_down,
 		"三個旗標都會在下一幀清空")
+
+	print("[input-test] 手把震動")
+	_kit.rumble_hit()
+	_kit.rumble_miss()
+	_ok(true, "答對／答錯震動呼叫不崩潰")
 
 	print("[input-test] 失敗 %d 項" % _fails.size())
 	quit(0 if _fails.is_empty() else 1)

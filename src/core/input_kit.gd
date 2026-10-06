@@ -91,6 +91,9 @@ var _consumed := false
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_actions()
+	_ensure_menu_joy()
+	if OS.has_feature("web"):
+		_install_web_rumble()
 
 
 func _build_actions() -> void:
@@ -186,3 +189,158 @@ func _top_control_at(node: Node, pos: Vector2) -> Control:
 		if c.mouse_filter != Control.MOUSE_FILTER_IGNORE and c.get_global_rect().has_point(pos):
 			return c
 	return null
+
+
+## 答對是短震，答錯是長而重的震。
+## 藍牙馬達要轉起來需要比較久，太短會完全感覺不到。
+## 強度跟著設定裡的「畫面震動」。關到 0 就不震。
+func rumble_hit() -> void:
+	_rumble(0.4, 0.85, 0.22)
+
+
+func rumble_miss() -> void:
+	_rumble(1.0, 1.0, 0.48)
+
+
+func _rumble(strong: float, weak: float, seconds: float) -> void:
+	var scale := float(SaveGame.get_setting("screen_shake", 1.0))
+	if scale <= 0.01:
+		return
+	strong = clampf(strong * scale, 0.0, 1.0)
+	weak = clampf(weak * scale, 0.0, 1.0)
+	for id in Input.get_connected_joypads():
+		Input.start_joy_vibration(id, weak, strong, seconds)
+	# 網頁版的 start_joy_vibration 是空的（Godot #96985）。
+	# 平板瀏覽器要另外打 Gamepad Haptics。沒有馬達的瀏覽器會自己跳過。
+	if OS.has_feature("web"):
+		_web_rumble(weak, strong, int(seconds * 1000.0))
+
+
+func _install_web_rumble() -> void:
+	var js := JavaScriptBridge
+	if js == null:
+		return
+	# Chrome 的 Gamepad Haptics 對藍牙 Xbox 常常沒有 vibrationActuator。
+	# 那種情況改走 WebHID，直接把 Xbox 的震動封包送出去。
+	# 第一次點畫面時才會跳出「選擇裝置」，而且只問一次。
+	js.eval("""
+if (!window.__kanaRumble) {
+  window.__kanaRumGen = 0;
+  window.__kanaHidAsked = false;
+  function motors(strong, weak) {
+    var s = Math.max(0, Math.min(255, Math.round(strong * 255)));
+    var w = Math.max(0, Math.min(255, Math.round(weak * 255)));
+    return new Uint8Array([0x0F, 0, 0, s, w, 0xFF, 0, 0]);
+  }
+  function sendHid(list, data) {
+    list.forEach(function(d) {
+      if (d.vendorId !== 0x045e) return;
+      var opened = d.opened ? Promise.resolve() : d.open();
+      opened.then(function() { return d.sendReport(0x03, data); }).catch(function(e) {
+        if (!window.__kanaHidErr) { window.__kanaHidErr = 1; console.warn('[kana-rumble] hid', e); }
+      });
+    });
+  }
+  function padNeedsHid() {
+    var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    var any = false;
+    for (var i = 0; i < pads.length; i++) {
+      var p = pads[i];
+      if (!p) continue;
+      any = true;
+      var a = p.vibrationActuator || (p.hapticActuators && p.hapticActuators[0]);
+      if (a && a.playEffect) return false;
+    }
+    return any;
+  }
+  function askHid() {
+    if (!navigator.hid || window.__kanaHidAsked || !padNeedsHid()) return;
+    window.__kanaHidAsked = true;
+    navigator.hid.requestDevice({filters:[{vendorId:0x045e}]}).catch(function(){});
+  }
+  window.addEventListener('pointerdown', askHid);
+  window.addEventListener('keydown', askHid);
+  window.__kanaRumble = function(weak, strong, ms) {
+    var gen = ++window.__kanaRumGen;
+    var played = 0;
+    var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (var i = 0; i < pads.length; i++) {
+      var p = pads[i];
+      if (!p) continue;
+      var a = p.vibrationActuator || (p.hapticActuators && p.hapticActuators[0]);
+      if (!a || !a.playEffect) continue;
+      var type = (a.type && a.type !== 'vibration') ? a.type : 'dual-rumble';
+      try {
+        var ret = a.playEffect(type, {startDelay:0, duration:ms, weakMagnitude:weak, strongMagnitude:strong});
+        if (ret && ret.then) ret.then(function(){}, function(e) {
+          if (!window.__kanaActErr) { window.__kanaActErr = 1; console.warn('[kana-rumble] actuator', e && e.name, e && e.message); }
+        });
+        played++;
+      } catch (e) {
+        if (!window.__kanaActErr) { window.__kanaActErr = 1; console.warn('[kana-rumble]', e); }
+      }
+    }
+    if (played || !navigator.hid) {
+      if (!window.__kanaRumbleLogged) { window.__kanaRumbleLogged = 1; console.log('[kana-rumble] actuator', played); }
+      return;
+    }
+    navigator.hid.getDevices().then(function(devs) {
+      var xbox = [];
+      for (var i = 0; i < devs.length; i++) if (devs[i].vendorId === 0x045e) xbox.push(devs[i]);
+      if (!xbox.length) {
+        if (!window.__kanaRumbleLogged) { window.__kanaRumbleLogged = 1; console.log('[kana-rumble] no actuator and no hid device'); }
+        return;
+      }
+      sendHid(xbox, motors(strong, weak));
+      setTimeout(function() {
+        if (window.__kanaRumGen !== gen) return;
+        sendHid(xbox, motors(0, 0));
+      }, ms);
+    });
+  };
+}
+""", true)
+
+
+func _web_rumble(weak: float, strong: float, ms: int) -> void:
+	var js := JavaScriptBridge
+	if js == null:
+		return
+	js.eval("if(window.__kanaRumble)window.__kanaRumble(%s,%s,%d);" % [str(weak), str(strong), ms], true)
+
+
+func _ensure_menu_joy() -> void:
+	_add_joy_button(&"ui_accept", JOY_BUTTON_A)
+	_add_joy_button(&"ui_cancel", JOY_BUTTON_B)
+	_add_joy_button(&"ui_up", JOY_BUTTON_DPAD_UP)
+	_add_joy_button(&"ui_down", JOY_BUTTON_DPAD_DOWN)
+	_add_joy_button(&"ui_left", JOY_BUTTON_DPAD_LEFT)
+	_add_joy_button(&"ui_right", JOY_BUTTON_DPAD_RIGHT)
+	_add_joy_axis(&"ui_up", JOY_AXIS_LEFT_Y, -1.0)
+	_add_joy_axis(&"ui_down", JOY_AXIS_LEFT_Y, 1.0)
+	_add_joy_axis(&"ui_left", JOY_AXIS_LEFT_X, -1.0)
+	_add_joy_axis(&"ui_right", JOY_AXIS_LEFT_X, 1.0)
+
+
+func _add_joy_button(action: StringName, button: JoyButton) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action)
+	for ev in InputMap.action_get_events(action):
+		if ev is InputEventJoypadButton and (ev as InputEventJoypadButton).button_index == button:
+			return
+	var e := InputEventJoypadButton.new()
+	e.button_index = button
+	InputMap.action_add_event(action, e)
+
+
+func _add_joy_axis(action: StringName, axis: JoyAxis, value: float) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action)
+	for ev in InputMap.action_get_events(action):
+		if ev is InputEventJoypadMotion and (ev as InputEventJoypadMotion).axis == axis \
+				and is_equal_approx((ev as InputEventJoypadMotion).axis_value, value):
+			return
+	var e := InputEventJoypadMotion.new()
+	e.axis = axis
+	e.axis_value = value
+	InputMap.action_add_event(action, e)

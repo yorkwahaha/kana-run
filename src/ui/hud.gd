@@ -701,9 +701,14 @@ func set_stamina(v: float, max_v: float) -> void:
 	_stamina.max_value = max_v
 	_stamina.value = v
 	var pct := 0.0 if max_v <= 0.0 else v / max_v
+	var low := pct < 0.25
 	_stamina_txt.text = "%d%%" % int(round(pct * 100.0))
+	_stamina_txt.add_theme_color_override("font_color", UiKit.BLOOD if low else UiKit.INK_DIM)
+	if _stam_label != null:
+		_stam_label.text = "體力不夠" if low else "奔馳體力"
+		_stam_label.add_theme_color_override("font_color", UiKit.BLOOD if low else UiKit.INK_DIM)
 	_stamina_fill.bg_color = (
-		UiKit.BLOOD if pct < 0.25 else
+		UiKit.BLOOD if low else
 		UiKit.GOLD if pct < 0.55 else
 		UiKit.JADE
 	)
