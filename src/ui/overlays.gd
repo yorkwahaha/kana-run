@@ -13,7 +13,7 @@ signal relic_chosen(id: String)
 signal continue_after_results
 signal settings_changed
 
-enum Page { NONE, TITLE, BRIEF, PAUSE, RELIC, RESULTS, SETTINGS, DASHBOARD }
+enum Page { NONE, TITLE, BRIEF, PAUSE, RELIC, RESULTS, SETTINGS, DASHBOARD, HELP }
 
 var _stack: Control
 var _pages: Dictionary = {}
@@ -21,7 +21,6 @@ var _shell_box: Dictionary = {}
 var _relic_row: HBoxContainer
 var _brief_row: HBoxContainer
 const CARD_W := 224          ## 五張卡片統一寬度（清音／濁音半濁音／拗音／片假名／大滿貫）
-var _stats_label: Label
 var _settings_return := Page.TITLE
 var _current := Page.NONE
 var _rng := RandomNumberGenerator.new()
@@ -29,6 +28,9 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# 遊戲中這層蓋在 HUD 上。預設 STOP 會把右上角暫停鈕的觸控整片吃掉，
+	# 鍵盤 Esc 仍可用，所以只有平板點得到按鈕、卻沒有反應。
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	theme = UiKit.theme()
 	_stack = Control.new()
 	_stack.name = "Stack"
@@ -39,6 +41,7 @@ func _ready() -> void:
 
 	_build_title()
 	_build_brief()
+	_build_help()
 	_build_pause()
 	_build_relic()
 	_build_results()
@@ -129,6 +132,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				resume_requested.emit()
 			Page.SETTINGS:
 				_close_settings()
+			Page.HELP:
+				_close_help()
 			Page.TITLE, Page.BRIEF, Page.DASHBOARD, Page.RESULTS:
 				show_title()
 			_:
@@ -145,60 +150,25 @@ func _build_title() -> void:
 	logo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	box.add_child(logo)
 
-	var sub := UiKit.label("KANA  RUN　—　五十音記憶跑酷", 21, UiKit.VIOLET)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(sub)
+	box.add_child(UiKit.spacer(Vector2(0, 36), false))
 
-	var line := ColorRect.new()
-	line.color = Color(0.45, 0.52, 1.0, 0.35)
-	line.custom_minimum_size = Vector2(560, 2)
-	line.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(line)
+	var menu := VBoxContainer.new()
+	menu.alignment = BoxContainer.ALIGNMENT_CENTER
+	menu.add_theme_constant_override("separation", 4)
+	menu.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(menu)
 
-	var brief := _caption(box,
-		"前方三座石碑，只有刻著正確假名的那座可以撞破。\n" +
-		"題目不只考背誦 —— 越往後越考詞彙、混淆字與反應速度。\n" +
-		"石碑進入可讀範圍後，越早選定正確跑道評價越高：0.45 秒內 PERFECT、0.90 秒內 GREAT，其後 GOOD。\n" +
-		"來不及就按 ↓ 棄題（三題後再考，扣體力、熱度減半）。")
-	brief.add_theme_font_size_override("font_size", 18)
+	var b_start := UiKit.text_button("開始", 34)
+	b_start.pressed.connect(func(): Sfx.ui_tap(); show_brief())
+	menu.add_child(b_start)
 
-	_stats_label = UiKit.label("", 15, Color(0.65, 0.68, 0.82))
-	_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_stats_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(_stats_label)
-
-	var sudden_note := _caption(box, "90 秒驟死：答錯或撞桿就結束。沒有體力條，追的是分數和連段。")
-	sudden_note.add_theme_font_size_override("font_size", 16)
-
-	var row := _action_row(box)
-
-	var b_start := UiKit.primary_button("開始", UiKit.VIOLET)
-	b_start.custom_minimum_size = Vector2(280, 68)
-	b_start.pressed.connect(func(): Sfx.ui_tap(); start_requested.emit([]))
-	row.add_child(b_start)
-
-	var b_sudden := UiKit.button("90 秒驟死", UiKit.BLOOD)
-	b_sudden.custom_minimum_size = Vector2(220, 68)
-	b_sudden.pressed.connect(func(): Sfx.ui_tap(); sudden_requested.emit())
-	row.add_child(b_sudden)
-
-	var more := _action_row(box)
-
-	var b_pick := UiKit.button("選擇關卡")
-	b_pick.custom_minimum_size = Vector2(160, 52)
-	b_pick.pressed.connect(func(): Sfx.ui_tap(); show_brief())
-	more.add_child(b_pick)
-
-	var b_dash := UiKit.button("學習儀表板")
-	b_dash.custom_minimum_size = Vector2(160, 52)
-	b_dash.pressed.connect(func(): Sfx.ui_tap(); show_dashboard())
-	more.add_child(b_dash)
-
-	var b_set := UiKit.button("設定")
-	b_set.custom_minimum_size = Vector2(110, 52)
+	var b_set := UiKit.text_button("設定", 34)
 	b_set.pressed.connect(func(): Sfx.ui_tap(); show_settings(Page.TITLE))
-	more.add_child(b_set)
+	menu.add_child(b_set)
+
+	var b_dash := UiKit.text_button("學習儀表板", 34)
+	b_dash.pressed.connect(func(): Sfx.ui_tap(); show_dashboard())
+	menu.add_child(b_dash)
 
 	page.modulate.a = 1.0
 
@@ -217,12 +187,53 @@ func _build_brief() -> void:
 	box.add_child(_brief_row)
 
 	var brow := _action_row(box)
+
+	var sudden := UiKit.button("90 秒驟死", UiKit.BLOOD)
+	sudden.custom_minimum_size = Vector2(200, 50)
+	sudden.pressed.connect(func(): Sfx.ui_tap(); sudden_requested.emit())
+	brow.add_child(sudden)
+
+	var help := UiKit.button("玩法說明")
+	help.custom_minimum_size = Vector2(160, 50)
+	help.pressed.connect(func(): Sfx.ui_tap(); show_help())
+	brow.add_child(help)
+
 	var back := UiKit.button("返回")
 	back.custom_minimum_size = Vector2(160, 50)
 	back.pressed.connect(func(): Sfx.ui_back(); show_title())
 	brow.add_child(back)
 
 	page.modulate.a = 1.0
+
+
+func _build_help() -> void:
+	var page := _new_page(Page.HELP)
+	var box: VBoxContainer = _shell_box[Page.HELP]
+	_headline(box, "玩法說明", 46)
+	_caption(box,
+		"前方三座石碑，只有刻著正確假名的那座可以撞破。\n" +
+		"題目不只考背誦 —— 越往後越考詞彙、混淆字與反應速度。\n" +
+		"石碑進入可讀範圍後，越早選定正確跑道評價越高：0.45 秒內 PERFECT、0.90 秒內 GREAT，其後 GOOD。\n" +
+		"來不及就按 ↓ 棄題（三題後再考，扣體力、熱度減半）。")
+	_caption(box, "90 秒驟死：答錯或撞桿就結束。沒有體力條，追的是分數和連段。")
+	_caption(box,
+		"鍵盤：A D 或 ← → 換線，1 2 3 直選，↓ 棄題或蹲下，Esc 暫停。\n" +
+		"觸控：左右滑換線，下滑蹲下。畫面左下與右下有左、閃、中、右。右上角是暫停。")
+
+	var brow := _action_row(box)
+	var back := UiKit.button("返回")
+	back.custom_minimum_size = Vector2(160, 50)
+	back.pressed.connect(func(): Sfx.ui_back(); _close_help())
+	brow.add_child(back)
+	page.modulate.a = 1.0
+
+
+func show_help() -> void:
+	_show(Page.HELP)
+
+
+func _close_help() -> void:
+	show_brief()
 
 
 ## 每次開啟都重建，否則「清除學習進度」之後掌握度還是舊的
@@ -800,11 +811,6 @@ func show_dashboard() -> void:
 
 # ── 切換 ────────────────────────────────────────────────────────────────
 func show_title() -> void:
-	if _stats_label != null:
-		var overall := Srs.unit_mastery([
-			KanaDB.Kind.SEION, KanaDB.Kind.DAKUON, KanaDB.Kind.YOON, KanaDB.Kind.KATA])
-		_stats_label.text = "總掌握度 %d%%　·　已練習 %d 題" % [
-			int(round(overall * 100.0)), Srs.answered_count()]
 	_show(Page.TITLE)
 
 

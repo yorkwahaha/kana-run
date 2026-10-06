@@ -216,6 +216,8 @@ func _build_top_right() -> void:
 	box.alignment = BoxContainer.ALIGNMENT_END
 	box.add_theme_constant_override("separation", 2)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# 比後面加上的暗角、觸控層高，暫停鈕才不會被畫在底下又點不到。
+	box.z_index = 2
 	add_child(box)
 
 	_score = UiKit.label("0", 34, UiKit.INK, true)
@@ -227,7 +229,8 @@ func _build_top_right() -> void:
 	box.add_child(_speed)
 
 	var pause := UiKit.button("暫停", UiKit.EDGE)
-	pause.custom_minimum_size = Vector2(104, 36)
+	pause.name = "PauseButton"
+	pause.custom_minimum_size = Vector2(120, 48)
 	pause.size_flags_horizontal = Control.SIZE_SHRINK_END
 	pause.focus_mode = Control.FOCUS_NONE
 	pause.pressed.connect(func(): Sfx.ui_tap(); pause_requested.emit())
@@ -422,11 +425,13 @@ func _build_overdrive_vignette() -> void:
 	holder.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(holder)
 
+	# 四邊各一條。上一版把結束座標寫進用不到的欄位，錨點又兩兩重合，
+	# 結果四條的面積都是 0，極限暗角從來沒畫出來。
 	var edges := {
-		"t": [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.16],
-		"b": [0.0, 1.0, 1.0, 1.0, 0.0, 0.84, 1.0, 1.0],
-		"l": [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.20, 1.0],
-		"r": [1.0, 0.0, 1.0, 1.0, 0.80, 0.0, 1.0, 1.0],
+		"t": [0.0, 0.0, 1.0, 0.16],
+		"b": [0.0, 0.84, 1.0, 1.0],
+		"l": [0.0, 0.0, 0.20, 1.0],
+		"r": [0.80, 0.0, 1.0, 1.0],
 	}
 	for key in edges:
 		var e: Array = edges[key]
@@ -733,6 +738,7 @@ func set_relics(owned: Dictionary) -> void:
 		if d.is_empty():
 			continue
 		var chip := UiKit.card(5, Color(0.10, 0.09, 0.19, 0.85), Color(d["color"].r, d["color"].g, d["color"].b, 0.55))
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		# 單行：圖示 + 名稱 + 數值。底欄只有幾十像素高，
 		# 兩行版本一多就會被畫面下緣切掉。
 		var row := HBoxContainer.new()

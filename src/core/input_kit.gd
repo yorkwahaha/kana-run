@@ -117,6 +117,12 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		var touch := event as InputEventScreenTouch
 		if touch.pressed:
+			# 點在按鈕上的那一下交給按鈕。否則右上角暫停、下方「中」
+			# 會同時被當成點擊換道。
+			if _top_control(touch.position) is BaseButton:
+				_touch_active = false
+				_consumed = true
+				return
 			_touch_active = true
 			_consumed = false
 			_touch_start = touch.position
@@ -157,3 +163,26 @@ func begin_frame() -> void:
 	_p_tapped = false
 	_p_dodge = false
 	_p_tapped_swiped_down = false
+
+
+## 這一點最上面、會收下點擊的控制項。IGNORE 的跳過。
+func _top_control(pos: Vector2) -> Control:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return _top_control_at(tree.root, pos)
+
+
+func _top_control_at(node: Node, pos: Vector2) -> Control:
+	if node is CanvasItem and not (node as CanvasItem).is_visible_in_tree():
+		return null
+	var kids := node.get_children()
+	for i in range(kids.size() - 1, -1, -1):
+		var hit := _top_control_at(kids[i], pos)
+		if hit != null:
+			return hit
+	if node is Control:
+		var c := node as Control
+		if c.mouse_filter != Control.MOUSE_FILTER_IGNORE and c.get_global_rect().has_point(pos):
+			return c
+	return null

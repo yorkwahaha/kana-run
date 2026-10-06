@@ -102,5 +102,88 @@ func _run() -> void:
 		else:
 			print("[touch] 暫停按鈕可用")
 
+	# 7. 遊戲中的暫停鈕必須真的收得到點擊。
+	# Overlays 蓋在 HUD 上面。它若是全螢幕 STOP，點暫停只會打到那層空殼，
+	# 按鈕的 pressed 永遠不會來。鍵盤 Esc 走的是另一條路，所以只有觸控會壞。
+	var ui_script = load("res://src/ui/overlays.gd")
+	var ui = ui_script.new()
+	var layer := CanvasLayer.new()
+	root.add_child(layer)
+	hud.reparent(layer)
+	layer.add_child(ui)
+	hud.size = Vector2(1280, 720)
+	ui.size = Vector2(1280, 720)
+	ui.hide_all()
+	await process_frame
+	hud.notification(Control.NOTIFICATION_RESIZED)
+	await process_frame
+
+	if ui.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+		print("   ★ 介面根節點會吃掉暫停鈕的觸控")
+		fails += 1
+	else:
+		print("[touch] 介面根節點不擋觸控")
+
+	if pause_button != null:
+		var pause_rect := pause_button.get_global_rect()
+		var pause_at := pause_rect.position + pause_rect.size * 0.5
+		var picked := _pick(layer, pause_at)
+		if picked != pause_button:
+			var who := "沒有控制項"
+			if picked != null:
+				who = picked.get_class()
+				if picked is Button:
+					who += "「%s」" % (picked as Button).text
+			print("   ★ 暫停鈕中心點到的是 %s" % who)
+			fails += 1
+		else:
+			print("[touch] 暫停鈕中心可點")
+
+	ui.show_title()
+	await process_frame
+	for label in ["開始", "設定", "學習儀表板"]:
+		var entry := _find_button(ui, label)
+		if entry == null:
+			print("   ★ 首頁缺少「%s」" % label)
+			fails += 1
+		elif not (entry.get_theme_stylebox("normal") is StyleBoxEmpty):
+			print("   ★ 「%s」還有底框" % label)
+			fails += 1
+	if fails == 0:
+		print("[touch] 首頁三個入口只有文字")
+
+	ui.show_brief()
+	await process_frame
+	if _find_button(ui, "90 秒驟死") == null:
+		print("   ★ 選關沒有 90 秒驟死")
+		fails += 1
+	if _find_button(ui, "玩法說明") == null:
+		print("   ★ 選關沒有玩法說明")
+		fails += 1
+	else:
+		(_find_button(ui, "玩法說明") as Button).pressed.emit()
+		await process_frame
+		if ui.get("_current") != ui.Page.HELP:
+			print("   ★ 玩法說明沒有打開")
+			fails += 1
+		else:
+			print("[touch] 選關含驟死與玩法說明")
+
 	print("[touch] 失敗 %d 項" % fails)
 	quit(0 if fails == 0 else 1)
+
+
+## 由上往下找第一個會收下點擊的控制項。近似 Godot 的 GUI picking。
+func _pick(node: Node, pos: Vector2) -> Control:
+	if node is CanvasItem and not (node as CanvasItem).is_visible_in_tree():
+		return null
+	var kids := node.get_children()
+	for i in range(kids.size() - 1, -1, -1):
+		var hit := _pick(kids[i], pos)
+		if hit != null:
+			return hit
+	if node is Control:
+		var c := node as Control
+		if c.mouse_filter != Control.MOUSE_FILTER_IGNORE and c.get_global_rect().has_point(pos):
+			return c
+	return null

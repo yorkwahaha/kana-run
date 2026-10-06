@@ -37,9 +37,13 @@ func _ready() -> void:
 
 
 func load_all() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
+	# 寫入若死在「舊檔已刪、暫存還沒改名」那一下，正式檔不在，資料在暫存。
+	var path := SAVE_PATH
+	if not FileAccess.file_exists(SAVE_PATH) and FileAccess.file_exists(TMP_PATH):
+		path = TMP_PATH
+	if not FileAccess.file_exists(path):
 		return
-	var text := FileAccess.get_file_as_string(SAVE_PATH)
+	var text := FileAccess.get_file_as_string(path)
 	if text.is_empty():
 		return
 	var parsed: Variant = JSON.parse_string(text)
@@ -54,6 +58,9 @@ func load_all() -> void:
 	if root.has("data") and typeof(root["data"]) == TYPE_DICTIONARY:
 		for k in (root["data"] as Dictionary).keys():
 			data[k] = root["data"][k]
+	for key in ["kana", "best", "collection", "totals", "pace"]:
+		if typeof(data.get(key)) != TYPE_DICTIONARY:
+			data[key] = {}
 
 
 func mark_dirty() -> void:
@@ -69,19 +76,33 @@ func _process(delta: float) -> void:
 
 
 func flush() -> void:
-	_dirty = false
-	_timer = 0.0
 	var payload := {"version": 1, "settings": settings, "data": data}
 	var f := FileAccess.open(TMP_PATH, FileAccess.WRITE)
 	if f == null:
 		push_warning("SaveGame: 無法寫入暫存檔 %s" % TMP_PATH)
+		_timer = 0.0
 		return
 	f.store_string(JSON.stringify(payload))
+	f.flush()
 	f.close()
 	var da := DirAccess.open("user://")
-	if da != null:
-		da.remove(SAVE_PATH)
-		da.rename(TMP_PATH, SAVE_PATH)
+	if da == null:
+		push_warning("SaveGame: 無法開啟存檔目錄")
+		_timer = 0.0
+		return
+	if FileAccess.file_exists(SAVE_PATH):
+		var removed := da.remove(SAVE_PATH)
+		if removed != OK:
+			push_warning("SaveGame: 無法替換存檔")
+			_timer = 0.0
+			return
+	var err := da.rename(TMP_PATH, SAVE_PATH)
+	if err != OK:
+		push_warning("SaveGame: 無法完成存檔替換")
+		_timer = 0.0
+		return
+	_dirty = false
+	_timer = 0.0
 
 
 func _notification(what: int) -> void:
@@ -101,13 +122,16 @@ func set_setting(key: String, value: Variant) -> void:
 # ── 便捷存取 ────────────────────────────────────────────────────────────
 
 func kana_record(kana: String) -> Dictionary:
-	if not data["kana"].has(kana):
-		data["kana"][kana] = {
+	var book: Dictionary = data["kana"]
+	var rec: Variant = book.get(kana, null)
+	if typeof(rec) != TYPE_DICTIONARY:
+		rec = {
 			"seen": 0, "correct": 0, "wrong": 0, "dodged": 0,
 			"total_ms": 0, "best_ms": 0, "streak": 0,
 			"ease": 2.5, "last_day": -1, "history": [],
 		}
-	return data["kana"][kana]
+		book[kana] = rec
+	return rec
 
 
 func best_score(unit_key: String) -> int:

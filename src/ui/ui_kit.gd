@@ -128,6 +128,8 @@ static func label(text: String, size := 20, color := INK, bold := false) -> Labe
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
 	l.add_theme_font_override("font", FontKit.bold if bold else FontKit.ui)
+	# 說明文字不是按鈕。預設 STOP 會在平板上擋住底下真正該點的控制項。
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
 
@@ -172,6 +174,27 @@ static func button(text: String, accent := EDGE) -> Button:
 	pr.bg_color = Color(0.09, 0.08, 0.17, 1)
 	b.add_theme_stylebox_override("pressed", pr)
 	b.focus_mode = Control.FOCUS_NONE
+	return b
+
+
+## 只有字，沒有底與框。首頁入口用。
+static func text_button(text: String, size := 32, color := INK) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	b.add_theme_font_override("font", FontKit.bold)
+	b.add_theme_font_size_override("font_size", size)
+	b.add_theme_color_override("font_color", color)
+	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	b.add_theme_color_override("font_pressed_color", VIOLET)
+	var empty := StyleBoxEmpty.new()
+	empty.set_content_margin_all(14)
+	b.add_theme_stylebox_override("normal", empty)
+	b.add_theme_stylebox_override("hover", empty)
+	b.add_theme_stylebox_override("pressed", empty)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.add_theme_stylebox_override("disabled", empty)
 	return b
 
 

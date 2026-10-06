@@ -262,6 +262,8 @@ func _open_test_page() -> void:
 	match _test_page:
 		"brief":
 			_ui.show_brief()
+		"help":
+			_ui.show_help()
 		"dashboard":
 			_ui.show_dashboard()
 		"settings":
@@ -547,14 +549,14 @@ func _on_start(kinds: Array) -> void:
 	_start_run()
 
 
-## 標題上的第二顆鈕。R 重開留在同一個模式，回到標題才清掉。
+## 選關畫面的「90 秒驟死」。R 重開留在同一個模式，回到標題才清掉。
 func _on_sudden() -> void:
 	_sudden = true
 	unit_kinds = _tonight_kinds()
 	_start_run()
 
 
-## 標題上的「開始」不先選關。
+## 驟死，以及沒指定單元時的退路。
 ## 還沒走出清音就只跑清音；已經碰過後面的音，就混進濁音和拗音。
 ## 具體抽哪些字由 SRS 決定，一輪長度固定。
 func _tonight_kinds() -> Array:
