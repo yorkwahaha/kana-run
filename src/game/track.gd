@@ -406,7 +406,7 @@ func set_theme(t: int) -> void:
 
 ## 分區天氣：改變粒子的重力、顏色與形狀。
 ##
-## 草木是飄落的花瓣、雨是細長的下落水痕、嵐是橫向的風雨 ——
+## 草木是飄落的花瓣、雨是細密的下落水痕、嵐是略帶同向側風的暴雨 ——
 ## 只換顏色看不出來，必須換形狀，遠看才知道換區了。
 func set_weather(kind: String, gravity: Vector3, tint: Color) -> void:
 	if _petals == null:
@@ -417,21 +417,45 @@ func set_weather(kind: String, gravity: Vector3, tint: Color) -> void:
 	_petals.gravity = gravity
 	var streak := kind == "rain" or kind == "storm"
 	if streak:
-		# 細長的方塊往下掉，看起來就是雨絲
-		var m := SceneKit.chamfer_box(Vector3(0.035, 1.15, 0.035), 0.01)
-		m.surface_set_material(0, SceneKit.toon_material(tint, 0.5, 0.3, 0.85))
-		_petals.mesh = m
-		_petals.amount = 420 if kind == "rain" else 620
-		_petals.initial_velocity_max = 6.0 + gravity.length() * 1.6
-		_petals.lifetime = 2.2
+		# 花瓣用的 +/-90 度隨機自轉、40 度擴散是舊雨絲左右亂斜的主因。
+		# 雨統一向下，風只提供同方向的小幅水平位移。
+		_petals.direction = Vector3(0.08, -1.0, 0.0).normalized() if kind == "storm" else Vector3.DOWN
+		_petals.spread = 4.0 if kind == "rain" else 5.0
+		_petals.angular_velocity_min = 0.0
+		_petals.angular_velocity_max = 0.0
+		# 集中在鏡頭常見的道路範圍，密度提高但不用暴增 CPU 粒子。
+		_petals.emission_box_extents = Vector3(18.0, 9.0, 23.0)
+		_petals.initial_velocity_min = 9.0 if kind == "rain" else 12.0
+		_petals.initial_velocity_max = 13.0 if kind == "rain" else 17.0
+		# 12 個三角面的普通盒取代 44 個三角面的發光倒角盒，
+		# 厚度縮成原本約一半、長度不到一半，避免霓虹棒般的粗雨絲。
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(0.016, 0.43, 0.016) if kind == "rain" else Vector3(0.019, 0.51, 0.019)
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.albedo_color = Color(0.76, 0.83, 0.94, 0.35) if kind == "rain" else Color(0.79, 0.81, 0.91, 0.42)
+		mesh.material = mat
+		_petals.mesh = mesh
+		# 控制 CPU 總量：一般雨 560、暴雨 700；採更集中分布提高可見雨量。
+		_petals.amount = 560 if kind == "rain" else 700
+		_petals.lifetime = 1.7
+		_petals.preprocess = 1.5
 	else:
+		# 換回櫻花、火星與雪時，復原自然飄散的角度和旋轉。
+		_petals.direction = Vector3.DOWN
+		_petals.spread = 40.0
+		_petals.angular_velocity_min = -90.0
+		_petals.angular_velocity_max = 90.0
+		_petals.emission_box_extents = Vector3(22.0, 9.0, 26.0)
+		_petals.initial_velocity_min = 0.4
 		var m := SceneKit.blob(0.11, 4, 7)
 		m.surface_set_material(0, SceneKit.toon_material(tint, 0.6, 0.6, 0.5))
 		_petals.mesh = m
 		_petals.amount = 140
 		_petals.initial_velocity_max = 2.0 + gravity.length() * 1.4
 		_petals.lifetime = 9.0
-	_petals.preprocess = 4.0
+		_petals.preprocess = 4.0
 
 
 ## 四區的路面要一眼分得出來：暖、雨、神社琥珀、嵐。

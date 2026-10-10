@@ -14,12 +14,9 @@ const DEFAULT_SETTINGS := {
 	"music_volume": 0.38,
 	"bgm_mode": 1,           # 0 = 單曲循環, 1 = 全部輪播
 	"screen_shake": 1.0,
-	"reduce_motion": 0.0,   # 0 = 正常, 1 = 減少閃爍/震動
+	"reduce_motion": 1.0,   # 新／舊玩家預設減少閃爍；可在設定中手動關閉
 	"quality": 1,            # 0 = 流暢, 1 = 平衡, 2 = 精細
-	"katakana": 0,           # 0 = 平假名, 1 = 片假名
 	"show_romaji": 1,
-	"unlock_all": 0,
-	"auto_retry": 0,
 }
 
 var settings: Dictionary = {}
@@ -61,6 +58,11 @@ func load_all() -> void:
 	for key in ["kana", "best", "collection", "totals", "pace"]:
 		if typeof(data.get(key)) != TYPE_DICTIONARY:
 			data[key] = {}
+	# v1 的預設值是 reduce_motion=0；升級 v2 時統一採較舒適的預設。
+	# 下一次儲存為 v2 後，玩家手動選擇關閉減少閃爍會被保留。
+	if int(root.get("version", 1)) < 2:
+		settings["reduce_motion"] = 1.0
+		mark_dirty()
 
 
 func mark_dirty() -> void:
@@ -76,7 +78,7 @@ func _process(delta: float) -> void:
 
 
 func flush() -> void:
-	var payload := {"version": 1, "settings": settings, "data": data}
+	var payload := {"version": 2, "settings": settings, "data": data}
 	var f := FileAccess.open(TMP_PATH, FileAccess.WRITE)
 	if f == null:
 		push_warning("SaveGame: 無法寫入暫存檔 %s" % TMP_PATH)

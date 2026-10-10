@@ -501,8 +501,7 @@ func _connect_ui() -> void:
 # ── 設定 ────────────────────────────────────────────────────────────────
 func _apply_settings() -> void:
 	_shake_user = float(SaveGame.get_setting("screen_shake", 1.0))
-	_reduce_motion = float(SaveGame.get_setting("reduce_motion", 0.0))
-	Curriculum.sync_settings()
+	_reduce_motion = float(SaveGame.get_setting("reduce_motion", 1.0))
 	_cam.reduce_motion = _reduce_motion
 	_post_mat.set_shader_parameter("reduce_motion", _reduce_motion)
 	_post_mat.set_shader_parameter("grain", 0.045 * (1.0 - _reduce_motion * 0.7))
@@ -1865,12 +1864,9 @@ func _resolve_miss(kana: String, ms: float) -> void:
 		penalty *= 0.5
 	_lose_stamina(penalty)
 
-	var retry := int(SaveGame.get_setting("auto_retry", 0)) == 1
 	var zanshin_guard := _relic_count("zanshin") > 0 and _zanshin_ready
 	Srs.record(kana, 0, ms)
-	if retry:
-		Srs.requeue(kana)
-	elif zanshin_guard:
+	if zanshin_guard:
 		_chain = int(_chain / 2.0)
 	else:
 		_chain = 0

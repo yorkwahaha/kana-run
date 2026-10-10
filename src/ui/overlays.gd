@@ -665,10 +665,19 @@ func _build_settings() -> void:
 	var box: VBoxContainer = _shell_box[Page.SETTINGS]
 	_headline(box, "設定", 46)
 
+	# 設定多於一個畫面的高度時只捲動中段；標題和完成鈕永遠留在畫面內。
+	var scroll := ScrollContainer.new()
+	scroll.name = "SettingsScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	box.add_child(scroll)
+
 	var card := UiKit.card(20, Color(0.06, 0.055, 0.12, 0.92))
 	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	card.custom_minimum_size = Vector2(640, 0)
-	box.add_child(card)
+	card.custom_minimum_size = Vector2(480, 0)
+	scroll.add_child(card)
 
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
@@ -679,10 +688,7 @@ func _build_settings() -> void:
 	v.add_child(_slider_row("配樂", "music_volume"))
 	v.add_child(_bgm_row())
 	v.add_child(UiKit.hsep())
-	v.add_child(_choice_row("假名", "katakana", ["平假名", "片假名"]))
 	v.add_child(_choice_row("畫質", "quality", ["流暢", "平衡", "精細"]))
-	v.add_child(_toggle_row("撞錯後自動再練", "auto_retry"))
-	v.add_child(_toggle_row("解鎖全部關卡", "unlock_all"))
 	v.add_child(_slider_row("畫面震動", "screen_shake"))
 	v.add_child(_toggle_row("減少閃爍（無障礙）", "reduce_motion"))
 	v.add_child(UiKit.hsep())
@@ -691,6 +697,7 @@ func _build_settings() -> void:
 	var row := _action_row(box)
 
 	var back := UiKit.primary_button("完成", UiKit.JADE)
+	back.name = "SettingsDone"
 	back.custom_minimum_size = Vector2(220, 52)
 	back.pressed.connect(func(): Sfx.ui_tap(); _close_settings())
 	row.add_child(back)
@@ -714,7 +721,6 @@ func _wipe_row() -> Control:
 		Sfx.ui_back()
 		SaveGame.wipe_progress()
 		Sfx.refresh_volumes()
-		Curriculum.sync_settings()
 		_rebuild_briefing()
 		settings_changed.emit()
 		b.text = "已清除"
@@ -727,7 +733,7 @@ func _slider_row(name: String, key: String) -> Control:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 14)
 	var l := UiKit.label(name, 18, UiKit.INK)
-	l.custom_minimum_size = Vector2(210, 0)
+	l.custom_minimum_size = Vector2(165, 0)
 	h.add_child(l)
 
 	var s := HSlider.new()
@@ -735,7 +741,7 @@ func _slider_row(name: String, key: String) -> Control:
 	s.max_value = 1.0
 	s.step = 0.05
 	s.value = float(SaveGame.get_setting(key, 0.8))
-	s.custom_minimum_size = Vector2(280, 24)
+	s.custom_minimum_size = Vector2(220, 24)
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	var val := UiKit.label("%d%%" % int(s.value * 100.0), 16, UiKit.INK_DIM)
@@ -782,8 +788,10 @@ func _bgm_row() -> Control:
 		v.add_child(info)
 		return v
 
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 12)
+	# 窄版橫向螢幕允許換行，避免背景音樂控制列超出卡片。
+	var h := HFlowContainer.new()
+	h.add_theme_constant_override("h_separation", 12)
+	h.add_theme_constant_override("v_separation", 8)
 
 	var l2 := UiKit.label("背景音樂", 18, UiKit.INK)
 	l2.custom_minimum_size = Vector2(150, 0)
@@ -847,8 +855,6 @@ func _on_setting_changed(key: String) -> void:
 	match key:
 		"master_volume", "sfx_volume", "music_volume":
 			Sfx.refresh_volumes()
-		"katakana":
-			Curriculum.sync_settings()
 		"quality":
 			get_tree().call_deferred("reload_current_scene")
 	settings_changed.emit()

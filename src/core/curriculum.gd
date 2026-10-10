@@ -18,16 +18,7 @@ const LISTENING_DIR := "res://audio/kana/"
 ## 若兩種都在，先抽到 ogg 會讓 iPad 整題沒聲音。
 const LISTENING_EXT := ["mp3", "ogg", "wav", "m4a"]
 
-var script_mode := 0            ## 0 = 平假名, 1 = 片假名
 var _listening_cache: Dictionary = {}
-
-
-func _ready() -> void:
-	script_mode = int(SaveGame.get_setting("katakana", 0))
-
-
-func sync_settings() -> void:
-	script_mode = int(SaveGame.get_setting("katakana", 0))
 
 
 func listening_available() -> bool:
@@ -67,9 +58,10 @@ func listening_coverage() -> Dictionary:
 
 
 # ── 工具 ────────────────────────────────────────────────────────────────
-## 把假名轉成目前選擇的平／片假名
+## 假名字形由關卡題庫本身決定：清音／濁音／拗音保持平假名，
+## 片假名關卡使用原本的片假名，不受舊存檔的 katakana 開關影響。
 func s(kana: String) -> String:
-	return KanaDB.to_script(kana, script_mode == 1)
+	return kana
 
 
 ## 挑選干擾假名。優先同混淆群，數量不足時再從同單元補。

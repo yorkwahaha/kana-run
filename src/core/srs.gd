@@ -43,11 +43,10 @@ func build_queue(kinds: Array, beats := -1) -> Array:
 	session_dodged = 0
 	session_new = 0
 
-	var unlocked := int(SaveGame.get_setting("unlock_all", 0)) == 1
 	for kind in unit_kinds:
 		for entry in KanaDB.unit(kind):
 			var kana: String = entry[0]
-			if unlocked or int(SaveGame.kana_record(kana).get("seen", 0)) == 0:
+			if int(SaveGame.kana_record(kana).get("seen", 0)) == 0:
 				_new_pool.append(kana)
 			else:
 				_review_pool.append(kana)
