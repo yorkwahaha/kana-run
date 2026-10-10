@@ -10,6 +10,10 @@ const LANE_COUNT := 3
 
 const SPAWN_Z := -50.0
 const LEGIBLE_Z := -24.0
+## 聽力題從出題時播放預錄 MP3，保留聽音、選道與 Web 啟動寬限。
+const LISTENING_REACTION_SEC := 2.5
+const LISTENING_AUDIO_TAIL_SEC := 1.5
+const LISTENING_STARTUP_GRACE_SEC := 0.45
 
 const SPEED_MIN := 13.0
 const SPEED_MAX := 42.0
@@ -167,6 +171,9 @@ var _slip_next := false
 var _title_orbit := 0.0
 var _pause_lock := false       ## 暫停選單用 Esc 恢復的那一幀，不要立刻再暫停
 var _listening_played := false
+var _listening_speed_limit := INF
+var _voice_generation := 0
+var _voice_stream_cache: Dictionary = {}
 var _open_lanes: Array = []
 var _od_wait_noted := false
 var _sudden := false
@@ -617,7 +624,10 @@ func _start_run() -> void:
 	_pending_relic = false
 	_slip_next = false
 	_pause_lock = false
+	_voice_generation += 1
+	_voice_player.stop()
 	_listening_played = false
+	_listening_speed_limit = INF
 	_open_lanes.clear()
 	_od_wait_noted = false
 	_overdrive = false
@@ -804,6 +814,11 @@ func _pick_next_wave() -> void:
 ##   紅白條上不蹲 → 撞飛
 ## 結論是閃避不再是「哪條道都能無腦按」，因為留一條空道在等著你換過去。
 func _spawn_obstacle_wave() -> void:
+	# 前一題的語音不可跨到障礙波，舊的單字 await 也要作廢。
+	_voice_generation += 1
+	_voice_player.stop()
+	_listening_played = false
+	_listening_speed_limit = INF
 	_obstacle_timer = 0
 	_obstacle_wave = true
 	_question = {}
@@ -986,34 +1001,51 @@ func _resolve_barrier() -> void:
 	_check_after_gap()
 
 
-## 題目的語音。單字題在石碑生成時就播，因為整詞比一題的可讀時間長。
-## 聽力題改到石碑進入可讀範圍才播，見 _play_listening_now。
+## 每題在石碑出生時清掉上一題音訊；聽力題立即播放打包的 MP3，
+## 不再等 LEGIBLE_Z 才發音。以播放時長決定聽力石碑的速度上限。
 func _play_question_voice() -> void:
+	_voice_generation += 1
 	_listening_played = false
+	_listening_speed_limit = INF
 	if _voice_player == null:
 		return
-	if _question.has("word_audio"):
+	_voice_player.stop()
+	if _question.has("audio"):
+		var duration := _play_clip(str(_question["audio"]))
+		_listening_played = duration > 0.0
+		_listening_speed_limit = _listening_max_wave_speed(duration)
+	elif _question.has("word_audio"):
 		_play_word_voice(_question["word_audio"])
 
 
-func _play_listening_now() -> void:
-	if _listening_played or _voice_player == null:
-		return
-	if not _question.has("audio"):
-		return
-	_listening_played = true
-	_play_clip(str(_question["audio"]))
+## 聽力題只限制石碑接近速度，不改跑者速度與普通題節奏。
+func _listening_max_wave_speed(audio_seconds: float) -> float:
+	var min_seconds := maxf(LISTENING_REACTION_SEC, audio_seconds + LISTENING_AUDIO_TAIL_SEC)
+	return absf(SPAWN_Z) / (min_seconds + LISTENING_STARTUP_GRACE_SEC)
 
 
-func _play_clip(path: String) -> void:
-	if path == "" or not ResourceLoader.exists(path):
-		return
+func _voice_stream(path: String) -> AudioStream:
+	if path == "":
+		return null
+	if _voice_stream_cache.has(path):
+		return _voice_stream_cache[path] as AudioStream
+	if not ResourceLoader.exists(path):
+		return null
 	var stream := load(path) as AudioStream
+	if stream != null:
+		_voice_stream_cache[path] = stream
+	return stream
+
+
+## 返回音檔長度，包含 Web 上 MP3 的啟動時間寬限。
+func _play_clip(path: String) -> float:
+	var stream := _voice_stream(path)
 	if stream == null:
-		return
+		return 0.0
 	_voice_player.stream = stream
 	_voice_player.volume_db = Sfx.channel_volume_db("Sfx")
 	_voice_player.play()
+	return stream.get_length()
 
 
 ## 依序播放單詞讀音。
@@ -1025,21 +1057,20 @@ func _play_clip(path: String) -> void:
 func _play_word_voice(paths: Array) -> void:
 	if paths.is_empty() or _voice_player == null or not is_inside_tree():
 		return
+	var generation := _voice_generation
 	for p in paths:
-		if not is_inside_tree() or state != State.PLAY:
+		if not is_inside_tree() or state != State.PLAY or generation != _voice_generation:
 			return
-		var path := str(p)
-		if path == "" or not ResourceLoader.exists(path):
-			continue
-		var stream := load(path) as AudioStream
+		var stream := _voice_stream(str(p))
 		if stream == null:
 			continue
 		_voice_player.stream = stream
 		_voice_player.volume_db = Sfx.channel_volume_db("Sfx")
 		_voice_player.play()
-		# 等這一段真的結束（0.04 秒的極短下限，避免單音的字重複觸發）
-		await _voice_player.finished
-		if not is_inside_tree() or state != State.PLAY:
+		# stop() 不保證發出 finished；逐幀檢查並讓舊題 await 自行退出。
+		while _voice_player.playing and generation == _voice_generation:
+			await get_tree().process_frame
+		if not is_inside_tree() or state != State.PLAY or generation != _voice_generation:
 			return
 		await get_tree().create_timer(0.04, true, false, true).timeout
 
@@ -1497,7 +1528,9 @@ func _advance_wave(dt: float) -> void:
 	if _obstacle_wave:
 		_advance_barrier(dt)
 		return
-	_wave_z += _speed * dt
+	# 聽力題石碑會暫時落後高速跑者，以免播完前就撞擊。
+	var approach_speed := minf(_speed, _listening_speed_limit)
+	_wave_z += approach_speed * dt
 	for i in LANE_COUNT:
 		_stones[i].position.z = _wave_z
 
@@ -1512,7 +1545,7 @@ func _advance_wave(dt: float) -> void:
 			# 不記的話會被當成「用完整段可讀時間」，早站好反而比晚切線分低。
 			if _lane == int(_question.get("target_index", -1)):
 				_decision_ms = 0.0
-			_play_listening_now()
+			# 聽力題在石碑生成時已播放，評價仍從進入可讀距離計算。
 		else:
 			_decision_elapsed += dt
 		_legible_time += dt
