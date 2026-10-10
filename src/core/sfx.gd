@@ -494,8 +494,11 @@ func report() -> String:
 
 # ── 匯流排 ──────────────────────────────────────────────────────────────
 func _setup_buses() -> void:
-	_music_bus_idx = _ensure_bus(BUS_MUSIC)
-	_sfx_bus_idx = _ensure_bus(BUS_SFX)
+	# Web Sample + 動態 add_bus() 會引發 Godot #119026 無聲問題。
+	# Web 只使用 Master，並改由各播放器控制 Music / Sfx 的音量。
+	if not OS.has_feature("web"):
+		_music_bus_idx = _ensure_bus(BUS_MUSIC)
+		_sfx_bus_idx = _ensure_bus(BUS_SFX)
 	_apply_volumes()
 
 
@@ -513,8 +516,18 @@ func _ensure_bus(name: String) -> int:
 func _apply_volumes() -> void:
 	var s: Dictionary = SaveGame.settings
 	_set_bus_db(BUS_MASTER, linear_to_db(float(s.get("master_volume", 0.9))))
-	_set_bus_db(BUS_SFX, linear_to_db(float(s.get("sfx_volume", 0.9))))
-	_set_bus_db(BUS_MUSIC, linear_to_db(float(s.get("music_volume", 0.38))))
+	if not OS.has_feature("web"):
+		_set_bus_db(BUS_SFX, linear_to_db(float(s.get("sfx_volume", 0.9))))
+		_set_bus_db(BUS_MUSIC, linear_to_db(float(s.get("music_volume", 0.38))))
+
+
+## Web 不建立 Music/Sfx 子 bus，改在播放器套用設定；桌面版仍交給 bus 控制。
+func channel_volume_db(bus: String) -> float:
+	if not OS.has_feature("web"):
+		return 0.0
+	var key := "music_volume" if bus == BUS_MUSIC else "sfx_volume"
+	var fallback := 0.38 if bus == BUS_MUSIC else 0.9
+	return maxf(linear_to_db(clampf(float(SaveGame.get_setting(key, fallback)), 0.0, 1.0)), -80.0)
 
 
 func _set_bus_db(bus: String, db: float) -> void:
@@ -528,6 +541,8 @@ func refresh_volumes() -> void:
 	_apply_volumes()
 	if using_external_bgm and _bgm_player != null:
 		_bgm_player.volume_db = linear_to_db(clampf(float(SaveGame.get_setting("music_volume", 0.38)), 0.0, 1.0))
+	if OS.has_feature("web") and _wind != null:
+		_wind.volume_db = wind_gain_db + channel_volume_db(BUS_SFX)
 
 
 # ── 播放器池 ────────────────────────────────────────────────────────────
@@ -542,18 +557,17 @@ func _build_voices() -> void:
 		_music_players.append(p)
 
 
-## 網頁版必須強制 Stream。
-##
-## 專案設定 audio/general/default_playback_type.web 的引擎預設是 Sample。
-## 播放器的 playback_type 留在 Default 時會採用那個值。
-## Sample 加上 _setup_buses() 裡的 add_bus() 會觸發 Godot #119026，
-## JS 端 Master 被從喇叭拔掉，整局靜默，而且沒有任何錯誤訊息。
-## 這裡直接指定 Stream，不靠專案設定有沒有寫對 .web 那個鍵。
+## 單執行緒 Web 的 Stream 音訊會跟著 3D 畫面掉幀而斷音。
+## Web 使用 Sample + Master（不動態加 bus），桌面版保留 Stream。
 func _new_player(bus: String) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
-	p.bus = bus
 	p.process_mode = Node.PROCESS_MODE_ALWAYS
-	p.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
+	if OS.has_feature("web"):
+		p.bus = BUS_MASTER
+		p.playback_type = AudioServer.PLAYBACK_TYPE_SAMPLE
+	else:
+		p.bus = bus
+		p.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
 	return p
 
 
@@ -707,7 +721,7 @@ func play(name: String, pitch := 1.0, volume_db := 0.0) -> void:
 	var p := _free_voice(_sfx_players)
 	p.stream = stream
 	p.pitch_scale = clampf(pitch, 0.25, 4.0)
-	p.volume_db = volume_db
+	p.volume_db = volume_db + channel_volume_db(BUS_SFX)
 	p.play()
 
 
@@ -718,7 +732,7 @@ func play_wave(name: String, pitch := 1.0, volume_db := 0.0, bus := BUS_SFX) -> 
 	var p := _free_voice(pool)
 	p.stream = _synth[name]
 	p.pitch_scale = clampf(pitch, 0.1, 6.0)
-	p.volume_db = volume_db
+	p.volume_db = volume_db + channel_volume_db(bus)
 	p.play()
 
 
@@ -802,7 +816,7 @@ func word_collect() -> void:
 # ── 風聲 ────────────────────────────────────────────────────────────────
 func _start_wind() -> void:
 	_wind = _new_player(BUS_SFX)
-	_wind.volume_db = -60.0
+	_wind.volume_db = -60.0 + channel_volume_db(BUS_SFX)
 	var st := _render(2.0, func(t: float, _i: int):
 		# 平滑的棕噪音感 + 緩慢起伏
 		var base := (randf() * 2.0 - 1.0)
@@ -844,7 +858,7 @@ func set_wind(speed01: float, delta := 0.016) -> void:
 			pass
 	var target := lerpf(lo, hi, clampf(speed01, 0.0, 1.0))
 	wind_gain_db = lerpf(wind_gain_db, target, clampf(delta * 4.0, 0.0, 1.0))
-	_wind.volume_db = wind_gain_db
+	_wind.volume_db = wind_gain_db + channel_volume_db(BUS_SFX)
 	_wind.pitch_scale = lerpf(pitch, pitch + 0.5, clampf(speed01, 0.0, 1.0))
 
 

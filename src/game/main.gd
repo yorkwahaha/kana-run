@@ -400,9 +400,9 @@ func _build_world() -> void:
 
 	# 題目語音（聽力題型）專用播放器
 	_voice_player = AudioStreamPlayer.new()
-	_voice_player.bus = "Sfx"
-	# 見 Sfx._new_player：網頁版 Default 會落到 Sample，多 bus 時整局沒聲音。
-	_voice_player.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
+	# Web 使用 Sample + Master，避免幀率影響音訊與動態 bus 靜音。
+	_voice_player.bus = "Master" if OS.has_feature("web") else "Sfx"
+	_voice_player.playback_type = AudioServer.PLAYBACK_TYPE_SAMPLE if OS.has_feature("web") else AudioServer.PLAYBACK_TYPE_STREAM
 	add_child(_voice_player)
 
 	_cam = load("res://src/game/camera_director.gd").new() as Camera3D
@@ -1013,7 +1013,7 @@ func _play_clip(path: String) -> void:
 	if stream == null:
 		return
 	_voice_player.stream = stream
-	_voice_player.volume_db = 0.0
+	_voice_player.volume_db = Sfx.channel_volume_db("Sfx")
 	_voice_player.play()
 
 
@@ -1036,7 +1036,7 @@ func _play_word_voice(paths: Array) -> void:
 		if stream == null:
 			continue
 		_voice_player.stream = stream
-		_voice_player.volume_db = 0.0
+		_voice_player.volume_db = Sfx.channel_volume_db("Sfx")
 		_voice_player.play()
 		# 等這一段真的結束（0.04 秒的極短下限，避免單音的字重複觸發）
 		await _voice_player.finished

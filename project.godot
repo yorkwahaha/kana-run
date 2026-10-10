@@ -26,20 +26,14 @@ Curriculum="*res://src/core/curriculum.gd"
 
 [audio]
 
-; Web 的生效鍵是 default_playback_type.web，不是不帶後綴的那一項。
-; 引擎內建 .web=1（Sample）。只寫 default_playback_type="Stream"
-; 在網頁版完全不會被讀到，播放模式仍是 Sample。
-;
-; Sample 再碰到執行期 AudioServer.add_bus()（本專案有 Music / Sfx 兩條）
-; 會踩 Godot #119026：JS 端 Master 的輸出被從 AudioContext.destination 拔掉。
-; 播放器回報 playing、bus 沒靜音、沒有 AudioContext 警告，喇叭卻是全靜音。
-; 桌機沒有這條 JS bus，所以只有網頁版中招。
-;
-; 0 = Stream，1 = Sample。這兩個數字不是 AudioServer.PlaybackType 的列舉值。
-; 單執行緒網頁版用 Stream 延遲較高，但混音走 Godot 自己的驅動，不經過壞掉的圖。
+; Web 單執行緒的 Stream 混音受畫面掉幀影響，會造成斷音。
+; 改回官方預設 Sample，並於 Sfx._setup_buses() 避免動態 add_bus()，
+; 防止 Godot #119026 導致 Master 斷開。Web 音量由播放器獨立控制。
+; 桌面版保留 Stream + Music/Sfx bus。
+; 0 = Stream，1 = Sample（ProjectSettings 整數，非 AudioServer 枚舉）。
 driver/enable_input=false
 general/default_playback_type=0
-general/default_playback_type.web=0
+general/default_playback_type.web=1
 
 [debug]
 
