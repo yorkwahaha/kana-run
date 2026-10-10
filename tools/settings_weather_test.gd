@@ -14,6 +14,11 @@ func _check(ok: bool, message: String) -> void:
 
 
 func _run() -> void:
+	print("[settings-weather] rendering settings")
+	var aa_key := "rendering/anti_aliasing/quality/screen_space_aa"
+	_check(int(ProjectSettings.get_setting(aa_key)) == 1, "原生版仍維持 Screen-space AA")
+	_check(int(ProjectSettings.get_setting_with_override_and_custom_features(aa_key, PackedStringArray(["web"]))) == 0, "Web Compatibility 不再啟用不支援的 Screen-space AA")
+
 	print("[settings-weather] progress and kana settings")
 	_check(not SaveGame.DEFAULT_SETTINGS.has("katakana"), "移除舊的假名字形全域切換")
 	_check(not SaveGame.DEFAULT_SETTINGS.has("auto_retry"), "移除自動再練設定")
@@ -65,13 +70,20 @@ func _run() -> void:
 		await process_frame
 		var done := ui.find_child("SettingsDone", true, false) as Control
 		var scroll := ui.find_child("SettingsScroll", true, false) as ScrollContainer
-		var can_fit := done != null and scroll != null
+		var card := ui.find_child("SettingsCard", true, false) as Control
+		var centered := ui.find_child("SettingsCenter", true, false) as CenterContainer
+		var can_fit := done != null and scroll != null and card != null and centered != null
+		var is_centered := false
 		if can_fit:
 			var r := done.get_global_rect()
 			var sc := scroll.get_global_rect()
 			var content := scroll.get_child(0) as Control
+			var card_rect := card.get_global_rect()
 			can_fit = r.position.y >= 4.0 and r.end.y <= float(dims.y) - 4.0 and sc.size.y > 0.0 and sc.end.y <= r.position.y and sc.end.x <= float(dims.x) - 4.0 and content.size.x <= sc.size.x + 1.0
+			# 出現垂直捲軸時，內容可用寬度減少 8px，視覺中心約偏移 4px。
+			is_centered = absf(card_rect.get_center().x - centered.get_global_rect().get_center().x) <= 1.0 and absf(card_rect.get_center().x - float(dims.x) * 0.5) <= 6.0
 		_check(can_fit, "設定完成鈕和捲動區位於 %dx%d 畫面內" % [dims.x, dims.y])
+		_check(is_centered, "設定卡片在 %dx%d 水平置中" % [dims.x, dims.y])
 		vp.queue_free()
 		await process_frame
 

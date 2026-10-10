@@ -674,10 +674,17 @@ func _build_settings() -> void:
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	box.add_child(scroll)
 
+	# ScrollContainer 不會因子物件設了 SHRINK_CENTER 就自動置中。
+	# 透過 CenterContainer 置中卡片，仍可捲動且完成按鈕留在畫面內。
+	var centered := CenterContainer.new()
+	centered.name = "SettingsCenter"
+	centered.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(centered)
+
 	var card := UiKit.card(20, Color(0.06, 0.055, 0.12, 0.92))
-	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.name = "SettingsCard"
 	card.custom_minimum_size = Vector2(480, 0)
-	scroll.add_child(card)
+	centered.add_child(card)
 
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
