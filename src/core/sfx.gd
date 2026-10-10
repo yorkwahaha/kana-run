@@ -40,6 +40,7 @@ var _ext_sfx: Dictionary = {}          ## 音效名 -> AudioStream
 var _bgm_tracks: Array = []            ## 可用的背景音樂
 var _bgm_player: AudioStreamPlayer
 var _bgm_track_names: Array[String] = []
+var _web_bgm_urls: Array[String] = []  ## Web 長音樂直接交給瀏覽器串流，不進 Godot Sample
 var using_external_bgm := false
 var _scan_timer := 0.0
 var _music_sig := ""
@@ -191,7 +192,9 @@ func audio_debug() -> void:
 	print("[audio] external bgm  : ", using_external_bgm)
 	print("[audio] bgm tracks    : ", _bgm_tracks.size())
 	print("[audio] ext sfx count : ", _ext_sfx.size())
-	if _bgm_player == null:
+	if OS.has_feature("web"):
+		print("[audio]   HTML BGM : ", _web_bgm_eval("status()"))
+	elif _bgm_player == null:
 		print("[audio]   ★ _bgm_player 是 null")
 	else:
 		print("[audio]   playing     : ", _bgm_player.playing)
@@ -248,6 +251,25 @@ func _load_external() -> void:
 	_reload_sfx()
 	_reload_music()
 
+## Web BGM 使用獨立 HTMLMediaElement；短音效和題目語音仍使用 Godot Sample。
+func _web_bgm_eval(expression: String) -> Variant:
+	if not OS.has_feature("web"):
+		return null
+	return JavaScriptBridge.eval("window.__kanaBgm && window.__kanaBgm." + expression, true)
+
+
+func _web_bgm_volume() -> float:
+	return clampf(float(SaveGame.get_setting("master_volume", 0.9)), 0.0, 1.0) * clampf(
+		float(SaveGame.get_setting("music_volume", 0.38)), 0.0, 1.0)
+
+
+func _web_bgm_configure() -> void:
+	_web_bgm_eval("setTracks(" + JSON.stringify(_web_bgm_urls) + ")")
+	_web_bgm_eval("setMode(" + str(_bgm_mode) + ")")
+	_web_bgm_eval("setVolume(" + str(_web_bgm_volume()) + ")")
+
+
+
 
 ## 掃描 music 資料夾。回傳檔案簽章（檔名串接）用來判斷有沒有變動。
 ##
@@ -263,6 +285,7 @@ func _load_external() -> void:
 func _reload_music() -> void:
 	_bgm_tracks.clear()
 	_bgm_track_names.clear()
+	_web_bgm_urls.clear()
 	var sig := ""
 	var seen := {}
 
@@ -277,6 +300,7 @@ func _reload_music() -> void:
 			continue
 		_bgm_tracks.append(stream)
 		_bgm_track_names.append(str(entry["name"]))
+		_web_bgm_urls.append(path.trim_prefix("res://"))
 		sig += path + "|"
 
 	# 再補上目錄裡有、但 manifest 還沒收錄的（開發期丟檔的情況）
@@ -296,6 +320,7 @@ func _reload_music() -> void:
 				continue
 			_bgm_tracks.append(stream)
 			_bgm_track_names.append(f.get_file().get_basename())
+			_web_bgm_urls.append(path.trim_prefix("res://"))
 			sig += path + "|"
 
 	_music_sig = sig
@@ -311,6 +336,13 @@ func _reload_music() -> void:
 	if not had:
 		print("[sfx] %s" % report())
 	_silent_report = false
+
+	if OS.has_feature("web"):
+		_web_bgm_configure()
+		var idx := _web_bgm_eval("index")
+		if not had or idx == null or int(idx) < 0:
+			set_bgm_track(randi() % _bgm_tracks.size())
+		return
 
 	if _bgm_player == null:
 		_bgm_player = _new_player(BUS_MUSIC)
@@ -407,6 +439,9 @@ func set_bgm_track(index: int) -> String:
 	if not using_external_bgm or _bgm_tracks.is_empty():
 		return ""
 	var i := posmod(index, _bgm_tracks.size())
+	if OS.has_feature("web"):
+		_web_bgm_eval("playIndex(" + str(i) + ")")
+		return _bgm_track_names[i]
 	_bgm_player.stream = _bgm_tracks[i]
 	_bgm_player.play()
 	_apply_bgm_loop()
@@ -420,6 +455,8 @@ func next_bgm() -> String:
 
 
 func bgm_track_name() -> String:
+	if OS.has_feature("web"):
+		return _bgm_track_names[_bgm_index()] if not _bgm_track_names.is_empty() else ""
 	if _bgm_player == null or _bgm_player.stream == null:
 		return ""
 	var i := _bgm_tracks.find(_bgm_player.stream)
@@ -437,6 +474,8 @@ func set_bgm_mode(mode: int) -> void:
 	_bgm_mode = clampi(mode, 0, 1)
 	SaveGame.set_setting("bgm_mode", _bgm_mode)
 	_apply_bgm_loop()
+	if OS.has_feature("web"):
+		return
 	if _bgm_mode == 1 and _bgm_tracks.size() > 1 and not _bgm_player.playing:
 		set_bgm_track(_bgm_index())
 
@@ -446,6 +485,9 @@ func bgm_mode() -> int:
 
 
 func _apply_bgm_loop() -> void:
+	if OS.has_feature("web"):
+		_web_bgm_eval("setMode(" + str(_bgm_mode) + ")")
+		return
 	if not using_external_bgm or _bgm_player == null:
 		return
 	var want_loop := _bgm_mode == 0 or _bgm_tracks.size() <= 1
@@ -462,6 +504,9 @@ func _apply_bgm_loop() -> void:
 
 
 func _bgm_index() -> int:
+	if OS.has_feature("web"):
+		var idx := _web_bgm_eval("index")
+		return clampi(int(idx), 0, maxi(0, _bgm_tracks.size() - 1)) if idx != null else 0
 	if _bgm_player == null or _bgm_player.stream == null:
 		return 0
 	return maxi(0, _bgm_tracks.find(_bgm_player.stream))
@@ -469,7 +514,12 @@ func _bgm_index() -> int:
 
 ## 重新播放目前這首
 func replay_bgm() -> void:
-	if not using_external_bgm or _bgm_player == null:
+	if not using_external_bgm:
+		return
+	if OS.has_feature("web"):
+		_web_bgm_eval("replay()")
+		return
+	if _bgm_player == null:
 		return
 	_bgm_player.stop()
 	_bgm_player.play()
@@ -539,6 +589,8 @@ func _set_bus_db(bus: String, db: float) -> void:
 
 func refresh_volumes() -> void:
 	_apply_volumes()
+	if OS.has_feature("web"):
+		_web_bgm_eval("setVolume(" + str(_web_bgm_volume()) + ")")
 	if using_external_bgm and _bgm_player != null:
 		_bgm_player.volume_db = linear_to_db(clampf(float(SaveGame.get_setting("music_volume", 0.38)), 0.0, 1.0))
 	if OS.has_feature("web") and _wind != null:

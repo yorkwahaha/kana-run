@@ -22,6 +22,14 @@ echo.
 echo   Exporting web build to build\web ... (takes a minute)
 echo.
 "%GODOTC%" --headless --path "%CD%" --export-release "Web" "build\web\index.html"
+set "RC=%ERRORLEVEL%"
+if "%RC%"=="0" (
+    if not exist "build\web\audio\music" mkdir "build\web\audio\music"
+    copy /Y "web\bgm_player.js" "build\web\bgm_player.js" >nul
+    if errorlevel 1 set "RC=1"
+    xcopy /Y /I "audio\music\*.mp3" "build\web\audio\music\" >nul
+    if errorlevel 1 set "RC=1"
+)
 
 rem Inject the audio-unlock script into index.html.
 rem
@@ -36,11 +44,11 @@ if exist "web\audio_unlock.html" (
     powershell -NoProfile -ExecutionPolicy Bypass -File "tools\inject_web_audio.ps1"
     if errorlevel 1 (
         echo   [WARN] audio unlock injection failed -- web build will be silent
+        set "RC=1"
     )
 ) else (
     echo   [WARN] web\audio_unlock.html not found -- web build will be silent
 )
-set "RC=%ERRORLEVEL%"
 echo.
 if "%RC%"=="0" (
     echo   OK  ->  build\web\index.html

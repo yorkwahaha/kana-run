@@ -115,6 +115,15 @@ jobs:
           set -euo pipefail
           mkdir -p build/web
           godot --headless --path . --export-release "Web" build/web/index.html
+
+          # Long BGM is streamed by the browser, while short SFX/voices use Godot Sample.
+          mkdir -p build/web/audio/music
+          cp -v audio/music/*.mp3 build/web/audio/music/
+          cp -v web/bgm_player.js build/web/bgm_player.js
+          test -s build/web/bgm_player.js
+          for track in audio/music/*.mp3; do
+            test -s "build/web/audio/music/$(basename "$track")"
+          done
           echo "templates:"; ls ~/.local/share/godot/export_templates/*/ 2>/dev/null | head -5
           size=$(stat -c%s build/web/index.pck)
           echo "pck size: $((size / 1048576)) MB"
@@ -127,6 +136,8 @@ jobs:
           pwsh -NoProfile -File tools/inject_web_audio.ps1
           grep -q '__kanaAudioUnlock' build/web/index.html \
             || { echo "★ 音訊解鎖 script 沒注入成功"; exit 1; }
+          grep -q 'src="bgm_player.js"' build/web/index.html \
+            || { echo "★ Web BGM 播放器 script 沒注入成功"; exit 1; }
 
           # pck 有內部壓縮，13MB 原始音訊進去只會變成 7MB 左右，
           # 所以大小不能當判準。要直接檢查音訊有沒有真的被打包。
