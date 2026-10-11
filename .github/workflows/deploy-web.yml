@@ -114,7 +114,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/web
-          godot --headless --path . --export-release "Web" build/web/index.html
+          # Web 長 BGM 只保留清單、不打包；桌面和 Android 的預載清單原樣恢復。
+          python3 tools/export_web_lean.py godot
 
           # Long BGM is streamed by the browser, while short SFX/voices use Godot Sample.
           mkdir -p build/web/audio/music
@@ -138,9 +139,18 @@ jobs:
             || { echo "★ 音訊解鎖 script 沒注入成功"; exit 1; }
           grep -q 'src="bgm_player.js"' build/web/index.html \
             || { echo "★ Web BGM 播放器 script 沒注入成功"; exit 1; }
+          # 不因 PCK 每次更新而重新下載相同的 Godot WASM 引擎。
+          python3 tools/patch_service_worker.py
+          test -s build/web/index.service.worker.js
 
-          # pck 有內部壓縮，13MB 原始音訊進去只會變成 7MB 左右，
-          # 所以大小不能當判準。要直接檢查音訊有沒有真的被打包。
+          # 防止長篇 BGM 被重複打包；保留音效、五十音、單字與字型。
+          test "$(stat -c%s build/web/index.pck)" -lt 10485760 \
+            || { echo "★ Web PCK 超過 10MiB，疑似 BGM 又被打包"; exit 1; }
+          for track in audio/music/*.mp3; do
+            if grep -q "audio/music/$(basename "$track")" build/web/index.pck; then
+              echo "★ Web PCK 內仍有 BGM: $(basename "$track")"; exit 1
+            fi
+          done
           missing=0
           for pat in ".mp3str" ".fontdata"; do
             n=$(grep -c -- "$pat" build/web/index.pck 2>/dev/null || true)
@@ -156,15 +166,22 @@ jobs:
             missing=1
           fi
 
-          # 最可靠的驗證：實際執行匯出出的 pck，確認遊戲讀得到音訊。
-          # 單看檔案在不在不夠 —— 執行期還要能 DirAccess/ResourceLoader 讀到。
-          echo "--- running the exported pack ---"
-          timeout 90 godot --headless --main-pack build/web/index.pck -- --perfect --turbo=5 2>&1 \
-            | grep -E "\[sfx\]" | head -3 | tee /tmp/sfx.log || true
-          if ! grep -q "外部 BGM" /tmp/sfx.log; then
-            echo "★ 匯出後的遊戲讀不到外部 BGM"
+          # 隔離啟動 PCK，防止 preload 從原始音樂資料夾偷讀，造成假性成功。
+          echo "--- isolated exported pack smoke test ---"
+          tempdir=$(mktemp -d)
+          cp build/web/index.pck "$tempdir/index.pck"
+          ( cd "$tempdir" && timeout 40 godot --headless --main-pack index.pck --quit-after 3 ) \
+            > /tmp/pack-smoke.log 2>&1 || true
+          if grep -Eq 'SCRIPT ERROR|Parse Error|Preload file .* does not exist' /tmp/pack-smoke.log; then
+            echo "★ 輕量 Web PCK 有腳本錯誤"
+            grep -E 'SCRIPT ERROR|Parse Error|Preload file ' /tmp/pack-smoke.log | head -12
             missing=1
           fi
+          if ! grep -q "外部音效覆蓋" /tmp/pack-smoke.log; then
+            echo "★ 隔離 PCK 無法載入音效"
+            missing=1
+          fi
+          rm -rf "$tempdir"
           exit $missing
 
       - name: Verify output

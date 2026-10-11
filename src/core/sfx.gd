@@ -279,7 +279,8 @@ func _web_bgm_configure() -> void:
 ## 而且沒有任何錯誤訊息。線上版就這樣靜靜地少了全部外部音訊。
 ##
 ## 改用 manifest 的清單（由 tools/gen_manifest.py 掃描實際檔案產生）。
-## manifest 裡的每個項目都是 preload，資源一定在 pck 裡。
+## 原生版的 manifest 會預載 BGM；Web 輕量版只保留 MUSIC 網址清單，
+## 不預載四首 MP3。其他音效、五十音與單字仍透過 preload 進 PCK。
 ## 同時保留目錄掃描作為開發期的補充：使用者若在執行中丟檔進去，
 ## 桌機版仍能即時生效（遊戲每 2 秒會重掃一次）。
 func _reload_music() -> void:
@@ -295,6 +296,14 @@ func _reload_music() -> void:
 		if seen.has(path):
 			continue
 		seen[path] = true
+		if OS.has_feature("web"):
+			# Web 音樂由 HTMLAudioElement 透過獨立 URL 串流，絕不從 PCK 解碼。
+			# null 只維持與 _bgm_track_names 同長度；Web 不會使用 AudioStream。
+			_bgm_tracks.append(null)
+			_bgm_track_names.append(str(entry["name"]))
+			_web_bgm_urls.append(path.trim_prefix("res://"))
+			sig += path + "|"
+			continue
 		var stream := _try_load(path)
 		if stream == null:
 			continue

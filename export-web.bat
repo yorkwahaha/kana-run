@@ -21,7 +21,7 @@ if not exist "build\web" mkdir "build\web"
 echo.
 echo   Exporting web build to build\web ... (takes a minute)
 echo.
-"%GODOTC%" --headless --path "%CD%" --export-release "Web" "build\web\index.html"
+python "tools\export_web_lean.py" "%GODOTC%"
 set "RC=%ERRORLEVEL%"
 if "%RC%"=="0" (
     if not exist "build\web\audio\music" mkdir "build\web\audio\music"
@@ -48,6 +48,10 @@ if exist "web\audio_unlock.html" (
     )
 ) else (
     echo   [WARN] web\audio_unlock.html not found -- web build will be silent
+)
+if "%RC%"=="0" (
+    python "tools\patch_service_worker.py"
+    if errorlevel 1 set "RC=1"
 )
 echo.
 if "%RC%"=="0" (

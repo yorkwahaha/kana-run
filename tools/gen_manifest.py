@@ -34,6 +34,7 @@ Ogg Vorbis 壓縮率較好，但 **iOS Safari 要到 18.4 才支援**
 CBR 112k 比 Ogg 還小一點，而且所有瀏覽器都支援。
 """
 
+import argparse
 import re
 from pathlib import Path
 
@@ -135,10 +136,12 @@ def ident(name: str) -> str:
     return re.sub(r"[^0-9a-zA-Z_]", "_", name)
 
 
-def keepalive_block(groups: dict[str, list[tuple[str, str]]]) -> str:
-    """產生 KEEPALIVE 陣列，把每個 preload 都收進去。"""
+def keepalive_block(groups: dict[str, list[tuple[str, str]]], web: bool = False) -> str:
+    """Web 長 BGM 由瀏覽器播放，只保存網址清單；不再預載到 PCK。"""
     names: list[str] = []
     for sub in ("music", "sfx", "kana", "words"):
+        if web and sub == "music":
+            continue
         names += [const_name(sub, n) for n, _ in groups[sub]]
     names += [f"F_{ident(n).upper()}" for n, _ in groups["fonts"]]
     lines = ["const KEEPALIVE: Array = [\n"]
@@ -157,12 +160,14 @@ def list_block(groups: dict[str, list[tuple[str, str]]], sub: str) -> str:
     return "".join(lines)
 
 
-def main() -> int:
+def main(web: bool = False) -> int:
     groups = collect()
     parts = [HEADER]
 
     parts.append("## ── 音訊 ──\n")
     for sub in ("music", "sfx", "kana", "words"):
+        if web and sub == "music":
+            continue
         for name, path in groups[sub]:
             parts.append(f'const {const_name(sub, name)} := preload("{path}")\n')
     parts.append("\n## ── 字型 ──\n")
@@ -177,7 +182,7 @@ def main() -> int:
         parts.append("\n" + list_block(groups, sub))
 
     parts.append("\n## 必須被 sfx.gd 讀取，否則資源分析器會丟棄以上所有相依關係。\n")
-    parts.append(keepalive_block(groups))
+    parts.append(keepalive_block(groups, web=web))
 
     OUT.write_text("".join(parts), encoding="utf-8")
     total = sum(len(groups[s]) for s in ("music", "sfx", "kana", "words"))
@@ -189,4 +194,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--web", action="store_true",
+                        help="Web manifest: BGM URLs without embedded MP3 preloads")
+    args = parser.parse_args()
+    raise SystemExit(main(web=args.web))
