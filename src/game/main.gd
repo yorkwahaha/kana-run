@@ -996,7 +996,8 @@ func _resolve_barrier() -> void:
 	_barrier.position.z = -400.0      # 立刻收掉，別停在畫面上
 	_gap = 0.44
 	if not _sudden and _stamina <= 0.0:
-		_begin_collapse(true)
+		# 成功蹲過橫桿、但因消耗體力耗盡：倒地，不能誤演出撞飛。
+		_begin_collapse(false)
 		return
 	_check_after_gap()
 

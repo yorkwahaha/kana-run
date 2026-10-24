@@ -239,7 +239,8 @@ func _build_word_blank(q: Dictionary, kana: String) -> void:
 	var meaning: String = w[3]
 
 	var at := reading.find(kana)
-	if at < 0:
+	# 單字聽力題必須有整詞音檔；新修正的例詞在補錄前只出假名題。
+	if at < 0 or word_file(reading).is_empty():
 		_build_romaji(q, kana, false)
 		return
 
@@ -250,7 +251,8 @@ func _build_word_blank(q: Dictionary, kana: String) -> void:
 	q["choice_kind"] = "kana"
 	q["choices"] = trio.map(func(k): return s(k))
 	q["_sources"] = trio
-	q["prompt"] = s(reading.substr(0, at)) + "○" + s(reading.substr(at + kana.length()))
+	# 只挖掉指定假名第一次出現的位置；不能把「もも」「ごご」全部挖空。
+	q["prompt"] = reading.substr(0, at) + "○" + reading.substr(at + kana.length())
 	q["prompt_sub"] = "%s · %s" % [kanji, meaning]
 	q["word_kanji"] = kanji
 	q["word_reading"] = s(reading)

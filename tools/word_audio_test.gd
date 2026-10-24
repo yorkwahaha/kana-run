@@ -36,6 +36,12 @@ func _run() -> void:
 	_ok(KanaDB.split_kana("みょう").size() == 2, "みょう → [みょ, う]（得到 %s）" % str(KanaDB.split_kana("みょう")))
 
 	print("[word-audio] 詞庫讀音")
+	print("[word-audio] 同字多次出現只挖第一格")
+	for item in [["う", "○ちゅう"], ["も", "○も"], ["ご", "○ご"]]:
+		var q: Dictionary = {}
+		C._build_word_blank(q, str(item[0]))
+		_ok(str(q.get("prompt", "")) == str(item[1]),
+			"%s 必須只挖第一格：%s" % [item[0], str(q.get("prompt", ""))])
 	# 讀音欄存成片假名會讓 reading.find(kana) 找不到，單字題整個消失
 	for kana in ["ぱ", "ぴ", "ぷ", "ぺ", "ぽ"]:
 		var w := KanaDB.word_for(kana)

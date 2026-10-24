@@ -256,7 +256,7 @@ func weakest(n: int, only_answered := true) -> Array:
 		if only_answered and int(_record_of(kana).get("seen", 0)) == 0:
 			continue
 		list.append(kana)
-	list.sort_custom(func(a, b): return _urgency(b) > _urgency(a))
+	list.sort_custom(func(a, b): return _urgency(a) > _urgency(b))
 	return list.slice(0, mini(n, list.size()))
 
 
@@ -266,7 +266,7 @@ func slowest(n: int, only_answered := true) -> Array:
 		if only_answered and int(_record_of(kana).get("correct", 0)) == 0:
 			continue
 		list.append(kana)
-	list.sort_custom(func(a, b): return avg_ms(b) > avg_ms(a))
+	list.sort_custom(func(a, b): return avg_ms(a) > avg_ms(b))
 	return list.slice(0, mini(n, list.size()))
 
 

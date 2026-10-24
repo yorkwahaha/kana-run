@@ -81,7 +81,7 @@ func _build_blocked(wood: Material, danger: Material, white: Material) -> Node3D
 		root.add_child(strip)
 	var lan := MeshInstance3D.new()
 	lan.mesh = SceneKit.blob(0.24, 6, 10)
-	lan.material_override = SceneKit.toon_material(Color(1.0, 0.58, 0.28), 1.0, 0.4, 2.6)
+	lan.material_override = SceneKit.toon_material(Color(1.0, 0.58, 0.28), 1.0, 0.4, 2.6).duplicate()
 	lan.scale = Vector3(1.0, 1.3, 1.0)
 	lan.position = Vector3(-LANE_W * 0.5 + 0.1, BLOCK_H - 0.26, 0)
 	root.add_child(lan)
@@ -118,6 +118,11 @@ func setup(covered: int, lane_x: Array = []) -> void:
 	_swing = 0.0
 	_hit_t = 0.0
 	_hit_lane = -1
+	for blocked_lane in _blocked_lanes:
+		blocked_lane.rotation = Vector3.ZERO
+	for lan in _lanterns:
+		lan.material_override = SceneKit.toon_material(Color(1.0, 0.58, 0.28), 1.0, 0.4, 2.6).duplicate()
+		lan.rotation = Vector3.ZERO
 	for i in 3:
 		var x: float = float(_lane_x[i]) if i < _lane_x.size() else 0.0
 		var is_blocked := blocks(i)

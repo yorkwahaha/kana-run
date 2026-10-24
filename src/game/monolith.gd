@@ -111,7 +111,7 @@ func _build() -> void:
 		for i in 3:
 			var r := MeshInstance3D.new()
 			r.mesh = SceneKit.chamfer_box(Vector3(0.07, 1.5 - i * 0.3, 0.07), 0.02)
-			r.material_override = SceneKit.glow_material(Color(0.42, 0.52, 0.9), 0.9)
+			r.material_override = SceneKit.glow_material(Color(0.42, 0.52, 0.9), 0.9).duplicate()
 			r.position = Vector3(side * (WIDTH * 0.5 - 0.10), 1.1 + i * 0.85, DEPTH * 0.5 + 0.02)
 			_body.add_child(r)
 			_runes.append(r)
@@ -270,6 +270,9 @@ func setup(text: String, answer: bool, is_kana := true, hint_text := "") -> void
 	_hint.visible = hint_text != "" and show_hint
 	for r in _runes:
 		r.visible = true
+		var rune_material := r.material_override as StandardMaterial3D
+		if rune_material != null and rune_material.emission_enabled:
+			rune_material.emission_energy_multiplier = 0.9
 	_shell.visible = true
 	for p in _pieces:
 		p.visible = false

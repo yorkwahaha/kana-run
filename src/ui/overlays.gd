@@ -863,7 +863,9 @@ func _on_setting_changed(key: String) -> void:
 		"master_volume", "sfx_volume", "music_volume":
 			Sfx.refresh_volumes()
 		"quality":
-			get_tree().call_deferred("reload_current_scene")
+			# 暫停期間改畫質不能重載場景，否則目前進度會消失。
+			if _settings_return != Page.PAUSE:
+				get_tree().call_deferred("reload_current_scene")
 	settings_changed.emit()
 
 
